@@ -1,5 +1,5 @@
 from langchain_ollama import ChatOllama
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate
 from src.config import settings
 
 class HyDE:

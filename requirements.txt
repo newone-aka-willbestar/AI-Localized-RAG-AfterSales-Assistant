@@ -3,7 +3,7 @@ uvicorn[standard]>=0.32.0
 pydantic>=2.9.0
 pydantic-settings>=2.5.0
 
-# LangChain 核心包（必须分开安装）
+
 langchain>=0.3.0
 langchain-core>=0.3.0
 langchain-community>=0.3.0
