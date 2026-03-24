@@ -1,0 +1,65 @@
+1.配置文件（.env config.py）
+#调用免费的api大模型的key
+from dotenv import load_dotenv：
+load_dotenv()：
+llm语言大模型
+EMBEDDING嵌入模型
+CHAT_MODEL聊天模型
+temperature 控制回答的随机性
+CHUNK_SIZE文档切块的大小
+CHUNK_OVERLAP相邻块之间重叠的字符数
+TOP_K 检索时返回最相似的几块文档
+#是否启用HyDE技术
+VECTORSTORE向量数据库
+#注：1.什么是HyDE：HyDE通过生成“假设性文档”作为中间桥梁，本技术是依托于RAG项目检索不准确以及幻觉等问题的解决方法之一（查询优化）
+#2.用于RAG优化的其他方法：语句-文档双编码器（索引与文档优化）；重排序，自我纠错（检索后优化）
+
+    [数据源] 
+        ↓
+    【预处理优化】清洗 → 分块 → 生成假设性问题 → 附加元数据
+        ↓
+    【索引优化】混合索引（向量 + BM25） + 多层索引
+        ↓
+    [向量数据库]
+        ↑
+    【查询优化】查询改写 → 多路查询 / HyDE → 自查询（元数据过滤）
+        ↓
+    【检索执行】混合检索（RRF融合）
+        ↓
+    【结果优化】重排序 → 上下文压缩
+        ↓
+    【生成优化】提示词工程 / 微调 + Self-RAG / 智能路由
+        ↓
+    [最终答案]
+
+2.文档处理（document_loader.py）
+from langchain_community.document_loaders import PyPDFLoader, TextLoader
+#从 LangChain 库中导入两个加载器 PyPDFLoader, TextLoader（LangChain 是一个用于构建基于大语言模型（LLM）应用的开发框架）
+#LangChain象层次较高，封装了较多底层细节，因此相对的性能与自由性相对较低
+from langchain.text_splitter import RecursiveCharacterTextSplitter 文本分割器
+from langchain.schema import Document它表示一个文档对象，包含文本内容和元数据（比如来源、页码）
+from typing import List
+import os
+#导入类型提示 List，方便写代码时知道返回值是什么类型；os 用于文件路径操作。
+class DocumentProcessor(类)
+#文档处理器
+def load_documents
+#读取后缀
+def split_documents
+#切分
+def process
+#加载再分割
+整合方法：先加载，再分割，一步到位。
+
+3.Chroma向量库管理（本地快速跑通 RAG）或是换SQlite或者FAISS（纯索引）
+#将文字转换为向量进行存储对比检索
+class VectorStoreManager
+#向量库管理类
+persist_directory
+#向量数据化存储（默认目录在配置文件里），准备嵌入模型
+get_retriever 
+#封装了获取检索器的逻辑，确保向量数据库已加载，并配置好检索参数（MMR 策略和返回数量）
+#MMR 策略在保证结果与查询高度相关的同时，尽量减少结果之间的冗余，从而提升整体的多样性。
+
+4.HyDE增强（一种优化，目的是解决检索幻觉）
+同时还有高并行与大量数据

@@ -1,0 +1,11 @@
+langchain==0.1.0
+langchain-openai==0.0.5
+langchain-community==0.0.10
+chromadb==0.4.22
+openai==1.12.0
+pypdf==3.17.4
+fastapi==0.109.0
+uvicorn==0.27.0
+gradio==4.16.0
+python-dotenv==1.0.0
+pydantic==2.5.3
