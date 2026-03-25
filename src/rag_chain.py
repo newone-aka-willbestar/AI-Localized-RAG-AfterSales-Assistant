@@ -1,5 +1,6 @@
-from langchain.chains.retrieval import create_retrieval_chain                    
-from langchain.chains.combine_documents.stuff import create_stuff_documents_chain 
+# src/rag_chain.py
+from langchain_classic.chains import create_retrieval_chain
+from langchain_classic.chains.combine_documents.stuff import create_stuff_documents_chain
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from src.vector_store import VectorStoreManager
