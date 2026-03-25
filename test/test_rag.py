@@ -1,5 +1,5 @@
 import pytest
-from src.rag_chain import RAGChain
+from rag import RAGChain
 
 @pytest.mark.asyncio
 async def test_rag_answer():
