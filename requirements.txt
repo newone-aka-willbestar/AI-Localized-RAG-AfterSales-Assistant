@@ -2,6 +2,11 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 pydantic>=2.9.0
 pydantic-settings>=2.5.0
+<<<<<<< HEAD
+=======
+
+
+>>>>>>> cd4de30651c018001ee813a1f1a0a83d98f33833
 langchain>=0.3.0
 langchain-core>=0.3.0
 langchain-community>=0.3.0
@@ -9,11 +14,19 @@ langchain-ollama>=0.1.0
 langchain-huggingface>=0.1.0
 langchain-chroma>=0.1.0
 langchain-text-splitters>=0.3.0 
+<<<<<<< HEAD
+=======
+
+>>>>>>> cd4de30651c018001ee813a1f1a0a83d98f33833
 chromadb>=0.5.0
 pypdf>=5.0.0
 python-dotenv>=1.0.1
 python-multipart>=0.0.12
+<<<<<<< HEAD
 httpx>=0.27.0
 sentence-transformers>=3.3.0
 streamlit>=1.40.0
 requests>=2.32.0
+=======
+httpx>=0.27.0
+>>>>>>> cd4de30651c018001ee813a1f1a0a83d98f33833
