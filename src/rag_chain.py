@@ -1,4 +1,3 @@
-# src/rag_chain.py
 from langchain_classic.chains import create_retrieval_chain
 from langchain_classic.chains.combine_documents.stuff import create_stuff_documents_chain
 from langchain_ollama import ChatOllama
