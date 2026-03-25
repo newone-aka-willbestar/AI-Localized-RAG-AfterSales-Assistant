@@ -1,8 +1,8 @@
 # src/rag.py
-# 功能：RAG 核心问答链（加载检索器 + 调用 LLM）
+# 功能：RAG 核心问答链（最简化版，适合学习）
+from langchain_classic.chains import create_retrieval_chain                
+from langchain_classic.chains.combine_documents.stuff import create_stuff_documents_chain 
 from langchain_ollama import ChatOllama
-from langchain.chains import create_retrieval_chain
-from langchain.chains.combine_documents.stuff import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 from src.vector_store import VectorStore
 from src.config import settings
