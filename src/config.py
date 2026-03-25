@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     TEMPERATURE: float = 0.3
 
     # Embedding
-    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    EMBEDDING_MODEL: str = "bge-large-zh-v1.5"
 
     # RAG 参数
     CHUNK_SIZE: int = 500
