@@ -10,13 +10,14 @@ from src.config import settings
 
 logger = logging.getLogger(__name__)
 
-os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"   # 使用国内镜像加速
+# ==================== 国内网络加速 ====================
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 os.environ["HTTP_PROXY"] = ""
 os.environ["HTTPS_PROXY"] = ""
 os.environ["NO_PROXY"] = "localhost,127.0.0.1"
 
 class VectorStoreManager:
-    """向量存储管理器 - 单例 + 热加载 + 增量添加"""
+    """向量存储管理器"""
 
     _instance: Optional["VectorStoreManager"] = None
     _vectorstore: Optional[Chroma] = None

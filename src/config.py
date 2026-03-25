@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     TEMPERATURE: float = 0.3
 
-    # Embedding
+    # Embedding（关键！改成这个中文模型）
     EMBEDDING_MODEL: str = "BAAI/bge-small-zh-v1.5"
 
     # RAG 参数
