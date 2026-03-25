@@ -1,73 +1,47 @@
 # src/vector_store.py
-import os
-from typing import List, Optional
+# 功能：向量数据库管理（RAG 第二步：向量化 + 存储）
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
-import logging
-
+from typing import List
 from src.config import settings
+import logging
+import os
 
 logger = logging.getLogger(__name__)
 
-# ==================== 国内网络加速 ====================
+# 国内加速（解决 huggingface 下载卡住）
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
-os.environ["HTTP_PROXY"] = ""
-os.environ["HTTPS_PROXY"] = ""
-os.environ["NO_PROXY"] = "localhost,127.0.0.1"
 
-class VectorStoreManager:
-    """向量存储管理器"""
-
-    _instance: Optional["VectorStoreManager"] = None
-    _vectorstore: Optional[Chroma] = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialize()
-        return cls._instance
-
-    def _initialize(self):
+class VectorStore:
+    """向量存储 - 负责把文本块变成向量并保存"""
+    
+    def __init__(self):
         self.embeddings = HuggingFaceEmbeddings(model_name=settings.EMBEDDING_MODEL)
         self.persist_directory = settings.VECTORSTORE_PATH
-        self._load_existing()
-
-    def _load_existing(self):
-        if os.path.exists(self.persist_directory) and any(os.listdir(self.persist_directory)):
-            self._vectorstore = Chroma(
-                persist_directory=self.persist_directory,
-                embedding_function=self.embeddings
-            )
-            logger.info(f"✅ 已加载现有向量库: {self.persist_directory}")
-        else:
-            self._vectorstore = None
-            logger.info("向量库为空，将在首次添加时创建")
+        self.vectorstore = None
 
     def add_documents(self, documents: List[Document]):
-        if not documents:
-            return
-
-        if self._vectorstore is None:
-            self._vectorstore = Chroma.from_documents(
+        """添加文档到向量库（第一次创建，后续自动追加）"""
+        if self.vectorstore is None:
+            self.vectorstore = Chroma.from_documents(
                 documents=documents,
                 embedding=self.embeddings,
                 persist_directory=self.persist_directory
             )
         else:
-            self._vectorstore.add_documents(documents)
-
+            self.vectorstore.add_documents(documents)
+        
         logger.info(f"✅ 已添加 {len(documents)} 个文档块到向量库")
 
     def get_retriever(self):
-        if self._vectorstore is None:
-            self._load_existing()
-        return self._vectorstore.as_retriever(
+        """获取检索器（RAG 检索阶段使用）"""
+        if self.vectorstore is None:
+            self.vectorstore = Chroma(
+                persist_directory=self.persist_directory,
+                embedding_function=self.embeddings
+            )
+        return self.vectorstore.as_retriever(
             search_type="mmr",
-            search_kwargs={"k": settings.TOP_K, "fetch_k": settings.TOP_K * 3}
+            search_kwargs={"k": settings.TOP_K}
         )
-
-    def get_vectorstore(self):
-        if self._vectorstore is None:
-            self._load_existing()
-        return self._vectorstore

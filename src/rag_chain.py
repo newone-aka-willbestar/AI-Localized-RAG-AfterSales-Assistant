@@ -1,79 +1,51 @@
-from langchain_classic.chains import create_retrieval_chain
-from langchain_classic.chains.combine_documents.stuff import create_stuff_documents_chain
+# src/rag.py
+# 功能：RAG 核心问答链（加载检索器 + 调用 LLM）
 from langchain_ollama import ChatOllama
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents.stuff import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
-from src.vector_store import VectorStoreManager
-from src.hyde import HyDE
+from src.vector_store import VectorStore
 from src.config import settings
 from typing import Dict, Any
 import logging
-import httpx   # 新增
 
 logger = logging.getLogger(__name__)
 
-class RAGChain:
-    def __init__(self, vector_manager: VectorStoreManager = None):
-        self.vector_manager = vector_manager or VectorStoreManager()
-
-        # 关键修复：强制禁用代理，防止 502
-        http_client = httpx.Client(proxies=None, timeout=60.0)
-
+class RAG:
+    """RAG 问答引擎（最简化版，适合学习）"""
+    
+    def __init__(self):
+        self.vector_store = VectorStore()
+        self.retriever = self.vector_store.get_retriever()
+        
         self.llm = ChatOllama(
             model=settings.OLLAMA_MODEL,
             base_url=settings.OLLAMA_BASE_URL,
-            temperature=settings.TEMPERATURE,
-            http_client=http_client   # ← 新增这一行
+            temperature=settings.TEMPERATURE
         )
 
-        self.retriever = self.vector_manager.get_retriever()
-        self.hyde = HyDE() if settings.USE_HYDE else None
-
-        system_prompt = """你是**华科制造**官方智能售后客服助手。
-请严格根据参考内容，用专业、友好、规范的语气回答。
-必须做到：
-1. 直接引用产品型号、故障代码、保修条款。
-2. 回答末尾标注来源。
-3. 无法回答时礼貌引导用户提供更多信息或转人工。
-
-【参考内容】
-{context}
-
-【用户问题】
-{input}
-【回答】"""
+        # 华科制造专属 Prompt（你可以自己修改）
+        system_prompt = """你是华科制造的智能客服助手。
+必须基于【参考内容】回答问题。
+如果不知道，就说“抱歉，此问题暂无相关信息”。
+回答要专业、友好、简洁，使用中文。"""
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
-            ("human", "{input}")
+            ("human", "{input}"),
+            ("ai", "相关参考内容：{context}")
         ])
 
+        # 官方推荐的 RAG 链
         question_answer_chain = create_stuff_documents_chain(self.llm, prompt)
         self.rag_chain = create_retrieval_chain(self.retriever, question_answer_chain)
 
-    def _retrieve_with_hyde(self, question: str):
-        if not self.hyde or not settings.USE_HYDE:
-            return self.retriever.invoke(question)
-        hypo_doc = self.hyde.generate_hypothetical_document(question)
-        hypo_results = self.retriever.invoke(hypo_doc)
-        original_results = self.retriever.invoke(question)
-        combined = hypo_results + original_results
-        seen = set()
-        unique = []
-        for doc in combined:
-            key = doc.page_content[:100]
-            if key not in seen:
-                seen.add(key)
-                unique.append(doc)
-        return unique[:settings.TOP_K * 2]
-
-    def answer(self, question: str) -> Dict[str, Any]:
+    def ask(self, question: str) -> Dict[str, Any]:
+        """用户提问入口"""
         logger.info(f"收到问题: {question}")
-        docs = self._retrieve_with_hyde(question)
         result = self.rag_chain.invoke({"input": question})
+        
         return {
             "answer": result["answer"],
-            "sources": [
-                {"content": doc.page_content[:300] + "...", "metadata": doc.metadata}
-                for doc in docs
-            ]
+            "sources": [doc.metadata.get("source", "未知") for doc in result.get("context", [])]
         }
