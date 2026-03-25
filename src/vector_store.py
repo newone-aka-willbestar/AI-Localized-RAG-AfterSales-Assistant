@@ -1,15 +1,17 @@
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_chroma import Chroma
-from langchain_core.documents import Document
-from typing import List, Optional
-from src.config import settings
-import logging
 import os
+from typing import List, Optional
+from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_core.documents import Document
+import logging
+
+from src.config import settings
 
 logger = logging.getLogger(__name__)
 
 class VectorStoreManager:
-    """单例向量管理器 - 解决上传后不生效的核心问题"""
+    """向量存储管理器 - 单例 + 热加载 + 增量添加"""
+
     _instance: Optional["VectorStoreManager"] = None
     _vectorstore: Optional[Chroma] = None
 
@@ -30,14 +32,15 @@ class VectorStoreManager:
                 persist_directory=self.persist_directory,
                 embedding_function=self.embeddings
             )
-            logger.info(f"✅ 加载现有向量库: {self.persist_directory}")
+            logger.info(f"✅ 已加载现有向量库: {self.persist_directory}")
         else:
             self._vectorstore = None
-            logger.info("向量库为空，等待首次添加")
+            logger.info("向量库为空，将在首次添加时创建")
 
     def add_documents(self, documents: List[Document]):
         if not documents:
             return
+
         if self._vectorstore is None:
             self._vectorstore = Chroma.from_documents(
                 documents=documents,
@@ -46,15 +49,16 @@ class VectorStoreManager:
             )
         else:
             self._vectorstore.add_documents(documents)
-        self._vectorstore.persist()
-        logger.info(f"✅ 添加 {len(documents)} 个文档块到向量库")
+
+        # 新版 Chroma 已自动持久化，无需 persist()
+        logger.info(f"✅ 已添加 {len(documents)} 个文档块到向量库")
 
     def get_retriever(self):
         if self._vectorstore is None:
             self._load_existing()
         return self._vectorstore.as_retriever(
             search_type="mmr",
-            search_kwargs={"k": settings.TOP_K, "fetch_k": settings.TOP_K * 2}
+            search_kwargs={"k": settings.TOP_K, "fetch_k": settings.TOP_K * 3}
         )
 
     def get_vectorstore(self):
