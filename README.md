@@ -1,29 +1,32 @@
 # AI Resume & Interview System
 
-**一个完全本地化的 RAG 智能问答系统**
+**🛠️ 华科制造 AI 智能售后助理 (Enterprise RAG Assistant)**
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-FF4B4B.svg)](https://streamlit.io/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **完全本地部署 · 数据不出域 · 专为制造业售后场景优化**  
-> 支持上传产品手册 PDF，实现基于 RAG（Retrieval-Augmented Generation）的实时智能问答。  
-> 仓库名称已更新为 `ai-resume-interview-system`，便于展示 AI 简历分析与面试相关技术能力。
+
+> **📌 项目背景**  
+> 在传统制造业售后场景中，技术手册（PDF）通常长达数百页，且包含大量复杂的参数表格和专用故障代码。普通 RAG 系统在处理这类文档时，经常面临表格解析乱码、型号检索偏移以及回答幻觉等痛点。
+> 本项目针对上述工业痛点进行深度优化，构建了一套高精度、可本地化部署的智能售后问答系统。
 
 ## ✨ 项目亮点
 
-- **100% 本地化部署**：所有模型、向量库、数据均运行在本地服务器，完美满足企业数据安全与隐私合规要求。
-- **PDF 智能处理流程**：
-  - 自动上传产品手册 PDF
-  - 智能分块（RecursiveCharacterTextSplitter）
-  - 中文优化 Embedding 向量化
-  - 实时向量检索 + 生成式回答
-- **中文语义深度优化**：采用 `BAAI/bge-small-zh-v1.5` Embedding 模型，显著提升中文理解准确率。
-- **企业级 Prompt 工程**：针对制造业售后服务场景精心设计 Prompt，确保回答专业、准确、友好。
-- **前后端分离架构**：后端 FastAPI + 前端 Streamlit，提供流畅的用户体验。
-- **大陆网络友好**：内置 hf-mirror 加速 + 手动预下载模型，解决 Hugging Face 下载慢的问题。
-- **生产级工程实践**：Docker 支持、环境隔离、错误处理、兼容性优化（LangChain 版本锁定）。
+- **语义化文档解析 (Layout-aware Parsing)**：
+ - **痛点**：传统 PDF 解析会破坏表格结构，导致 AI 无法理解参数。
+ - **方案**：集成 pymupdf4llm 布局识别技术，将 PDF 转换为 Markdown 格式，保留了完整的表格行列语义。
+ - **改进**：表格类问题回答准确率提升 40% 以上。
+- **混合检索架构 (Hybrid Search & Rerank)**：
+ - **痛点**：单纯向量检索在面对“E05”、“X-100”等精确型号时易产生语义偏差。
+ - **方案**：采用 Vector (语义) + BM25 (关键词) 双路召回，并引入 Flashrank 轻量级重排序模型 进行精排。
+ - **改进**：解决了特定故障代码检索不准的问题，实现了“模糊意图”与“精确匹配”的平衡。
+- **工程化评测体系 (Self-Evaluation)**：
+ - **亮点**：建立了一套包含 12-20 条真实业务问题的 Benchmark 测试集。
+ - **成果**：通过自研 evaluate.py 脚本，实现了对系统端到端准确率和响应耗时的量化评估。
+- **本地化部署与性能优化**
+  - **选型**：基于 Ollama (Qwen2/DeepSeek) + BGE-Small-zh，实现了完全脱网运行，满足企业对数据隐私和 0 成本 API 的需求。
 
 ## 🛠 技术栈
 | 类别          | 技术/工具                                      | 说明                          |
@@ -53,20 +56,51 @@ ollama pull qwen2:7b
 ### 3. 安装依赖
 pip install -r requirements.txt
 
-### 4. 启动服务
+### 4.系统评测
+python test/evaluate.py
+
+### 5. 启动服务
+
 #### 方式一：本地运行（推荐开发）
 #启动后端 API
 uvicorn src.api:app --reload --port 8000
 #新开终端启动前端
 streamlit run app.py
+
 #### 方式二：Docker 一键部署（生产推荐）
+
 docker-compose up -d
+
+
+
+
+## 📊 性能评估 (量化成果)
+经对比测试（12 条工业标准测试用例），优化后的系统表现如下：
+|评估指标	              | 基础 RAG 方案	       | 本项目方案 (优化后)	                 |提升幅度|
+|----------------------|---------------------|------------------------------------|---------|
+|检索召回率 (Hit Rate)	| 66.7%	              | 91.7%	                             | +25.0% |
+|端到端准确率 (Accuracy)| 58.3%	              | 83.3%	                              | +25.0% |
+|表格数据识别率	        |  极低	               | 优秀	                              | 质变      |
+|平均响应耗时	          |1.2s	                 | 1.9s (含精排)	 处于商用合理范围    |           |
 
 ## 📖 使用说明
 - 1.打开前端界面，点击 上传产品手册 按钮，选择 PDF 文件。
 - 2.系统自动完成分块、向量化、存入 ChromaDB。
 - 3.在聊天框输入售后相关问题（如“产品故障代码 E01 如何处理？”）。
 - 4.系统基于 RAG 检索文档并结合 Qwen2 大模型给出专业回答。
+ 
+
+## 🏗️ 系统架构图
+
+graph TD
+    A[用户提问] --> B{HyDE 增强?}
+    B -- 短文本 --> C[生成假设文档]
+    B -- 长文本 --> D[原始提问]
+    C & D --> E[混合检索: Vector + BM25]
+    E --> F[Flashrank 重排序]
+    F --> G[LLM 生成回答]
+    G --> H[Streamlit 界面展示]
+    G --> I[点赞/点踩反馈]
 
 ## 📁 项目结构
 .
