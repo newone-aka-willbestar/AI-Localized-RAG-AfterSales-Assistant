@@ -1,7 +1,13 @@
+# --- 基础 Web 框架 ---
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 pydantic>=2.9.0
 pydantic-settings>=2.5.0
+python-dotenv>=1.0.1
+python-multipart>=0.0.12
+httpx>=0.27.0
+
+# --- LangChain 核心生态 ---
 langchain>=0.3.0
 langchain-core>=0.3.0
 langchain-community>=0.3.0
@@ -9,10 +15,24 @@ langchain-ollama>=0.1.0
 langchain-huggingface>=0.1.0
 langchain-chroma>=0.1.0
 langchain-text-splitters>=0.3.0
-langchain-classic>=0.1.0
-chromadb>=0.5.0
+
+# --- 核心增强：混合检索与重排序 (新增) ---
+# BM25Retriever 必须依赖此库
+rank_bm25>=0.2.2 
+
+flashrank>=0.2.0
+
+# --- 文档处理与 PDF 解析 (新增) ---
+# 核心：比 pypdf 更强的布局识别和表格还原
+pymupdf4llm>=0.0.12
+# 基础 PDF 支持
 pypdf>=5.0.0
-python-dotenv>=1.0.1
-python-multipart>=0.0.12
+pymupdf>=1.24.0
+
+# --- 向量库与嵌入模型 ---
+chromadb>=0.5.0
 sentence-transformers>=3.0.0
-httpx>=0.27.0
+
+# --- 其他 ---
+# 如果你确定还在用旧版的 chains，可以保留，但我们重构后基本不需要了
+# langchain-classic>=0.1.0

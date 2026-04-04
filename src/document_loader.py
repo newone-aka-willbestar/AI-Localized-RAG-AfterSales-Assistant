@@ -1,67 +1,84 @@
-# src/document_loader.py
-# 企业级文档加载器 - 专为制造业PDF标准/手册优化（生产可用）
-from langchain_community.document_loaders import PyMuPDFLoader  # 推荐替换PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.documents import Document
+import logging
+import hashlib
 from pathlib import Path
 from typing import List
-import logging
+
+# 核心升级：使用 pymupdf4llm 将 PDF 完美转为 Markdown（保留表格结构）
+import pymupdf4llm
+from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
 from src.config import settings
 
 logger = logging.getLogger(__name__)
 
 class DocumentLoader:
-    """企业级文档加载与分割模块"""
+    """企业级文档解析器：支持表格还原、Markdown 层次拆分与语义增强"""
 
     def __init__(self):
-        # 企业级推荐参数（可通过settings动态调整）
-        self.chunk_size = getattr(settings, "CHUNK_SIZE", 1200)
-        self.chunk_overlap = getattr(settings, "CHUNK_OVERLAP", 250)
+        self.chunk_size = getattr(settings, "CHUNK_SIZE", 1000)
+        self.chunk_overlap = getattr(settings, "CHUNK_OVERLAP", 200)
 
-        # 中文国家标准/手册专用分隔符（关键优化点）
+        # 1. 第一层拆分：按 Markdown 标题层级拆分，保证章节完整性
+        # 面试亮点：这能让每个 Chunk 自动带上它所属的章节信息，避免“断章取义”
+        headers_to_split_on = [
+            ("#", "Header_1"),
+            ("##", "Header_2"),
+            ("###", "Header_3"),
+        ]
+        self.header_splitter = MarkdownHeaderTextSplitter(
+            headers_to_split_on=headers_to_split_on, 
+            strip_headers=False
+        )
+
+        # 2. 第二层拆分：在章节内部按长度递归拆分
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=self.chunk_size,
             chunk_overlap=self.chunk_overlap,
-            separators=[
-                "\n\n",           # 段落
-                "\n",             # 换行
-                "。", "！", "？", "；",  # 中文句子结束符
-                "5\.", "6\.", "7\.", "8\.", "9\.",  # 保留章节编号 5.1 5.1.1 等
-                " ",              # 空格
-                "",
-            ],
-            keep_separator=True,
-            add_start_index=True,
+            separators=["\n\n", "\n", "。", "！", "？", "；", " ", ""]
         )
 
+    def _generate_file_hash(self, file_path: Path) -> str:
+        """生成文件唯一标识，用于增量更新处理（生产环境必备）"""
+        hasher = hashlib.md5()
+        with open(file_path, "rb") as f:
+            buf = f.read()
+            hasher.update(buf)
+        return hasher.hexdigest()
+
     def load_and_split(self, file_path: str) -> List[Document]:
-        """加载PDF + 智能分割 + 企业级元数据增强"""
+        """PDF -> Markdown -> 语义切片 -> 元数据注入"""
         file_path = Path(file_path)
-        logger.info(f"📄 正在加载文档: {file_path.name}")
+        logger.info(f"🚀 正在启动深度解析: {file_path.name}")
 
-        # 使用 PyMuPDFLoader（比PyPDFLoader更准，保留更多结构信息）
-        loader = PyMuPDFLoader(str(file_path))
-        raw_docs = loader.load()
+        # A. 布局识别解析：将 PDF 转为 Markdown
+        # 这种方式处理表格的效果远好于普通的 PyMuPDFLoader
+        md_text = pymupdf4llm.to_markdown(str(file_path))
+        
+        # B. 基于标题层级的逻辑拆分
+        header_splits = self.header_splitter.split_text(md_text)
 
-        # 分割
-        split_docs = self.text_splitter.split_documents(raw_docs)
+        # C. 细粒度递归切片
+        final_splits = self.text_splitter.split_documents(header_splits)
 
-        # 企业级元数据增强（生产环境必备，便于后续检索、日志、调试）
-        for i, doc in enumerate(split_docs):
-            content = doc.page_content.strip()
-            # 尝试提取章节标题（适用于GB/T标准格式）
-            section_title = content.split("\n")[0][:60] if "\n" in content else content[:60]
-
+        # D. 工业级元数据注入
+        file_hash = self._generate_file_hash(file_path)
+        
+        for i, doc in enumerate(final_splits):
+            # 记录该块是否包含表格 (Markdown 表格通常包含 |---| )
+            has_table = "|" in doc.page_content and "---" in doc.page_content
+            
             doc.metadata.update({
                 "source": file_path.name,
-                "page": doc.metadata.get("page", 0) + 1,
-                "section_title": section_title,
+                "file_hash": file_hash,
                 "chunk_id": i,
-                "total_chunks": len(split_docs),
-                "file_type": "pdf",
-                "chunk_size": self.chunk_size,
+                "has_table": has_table,
+                "content_length": len(doc.page_content),
+                # 继承来自 MarkdownHeaderTextSplitter 的层级信息
+                "section_hierarchy": {
+                    "h1": doc.metadata.get("Header_1", "未知"),
+                    "h2": doc.metadata.get("Header_2", "未知")
+                }
             })
 
-        logger.info(f"✅ 分割完成：{len(raw_docs)} 页 → {len(split_docs)} 个块 "
-                    f"(chunk_size={self.chunk_size}, overlap={self.chunk_overlap})")
-        return split_docs
+        logger.info(f"🎯 解析完成：生成 {len(final_splits)} 个语义块 (表格检测: {'有' if any(d.metadata['has_table'] for d in final_splits) else '无'})")
+        return final_splits

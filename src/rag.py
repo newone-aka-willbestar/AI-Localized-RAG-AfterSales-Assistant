@@ -1,55 +1,133 @@
-from langchain_classic.chains import create_retrieval_chain
-from langchain_classic.chains.combine_documents.stuff import create_stuff_documents_chain
-from langchain_ollama import ChatOllama
+import logging
+from typing import Dict, Any, List, Optional
+
+from langchain.retrievers import EnsembleRetriever
+from langchain_community.retrievers import BM25Retriever
+from langchain.retrievers.contextual_compression import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors import FlashrankRerank 
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+
 from src.vector_store import VectorStore
 from src.config import settings
-from typing import Dict, Any
-import logging
+from langchain_ollama import ChatOllama
 
 logger = logging.getLogger(__name__)
 
 class RAG:
-    """RAG 问答引擎"""
+    """
+    工业级 RAG 引擎（优化版）：
+    1. 支持动态加载文档（解决启动时无文档报错）
+    2. 混合检索 + 语义精排
+    3. 异常捕获与友好提示
+    """
     
-    def __init__(self):
+    def __init__(self, documents: Optional[List] = None):
         self.vector_store = VectorStore()
-        self.retriever = self.vector_store.get_retriever()
-        
         self.llm = ChatOllama(
             model=settings.OLLAMA_MODEL,
             base_url=settings.OLLAMA_BASE_URL,
-            temperature=0.1,          # 降低温度，回答更确定
-            num_predict=1024
+            temperature=0,
         )
-
         
-        system_prompt = """你是华科制造的工业产品售后服务智能专家。
+        # 核心：最终检索器实例，初始为 None
+        self.final_retriever = None
+        
+        # 如果初始化时有文档，直接构建检索链
+        if documents:
+            self.init_retriever(documents)
+        else:
+            logger.warning("⚠️ RAG 启动时未加载文档，请通过 /upload 接口上传文档。")
 
-【核心规则 - 必须严格遵守】
-- 你只能使用【参考文档内容】中的信息来回答问题。
-- 禁止使用任何外部知识、个人经验、通用行业做法或编造内容。
-- 如果参考文档中没有明确相关信息，必须原样回答：“根据当前上传的文档，没有找到相关内容。”
-- 回答要专业、准确、简洁，尽量使用文档中的原文表述。
-- 不要添加“根据检索到的文档”“推荐性内容”等多余前缀，直接给出答案。
+    def init_retriever(self, all_documents: List):
+        """
+        初始化或更新检索器（面试点：动态构建检索链）
+        """
+        try:
+            # 1. 向量路 (MMR 保证多样性)
+            vector_retriever = self.vector_store.get_retriever()
+            
+            # 2. 关键词路 (BM25 处理专有名词)
+            bm25_retriever = BM25Retriever.from_documents(all_documents)
+            bm25_retriever.k = 5
+            
+            # 3. 合并双路召回
+            ensemble_retriever = EnsembleRetriever(
+                retrievers=[vector_retriever, bm25_retriever],
+                weights=[0.6, 0.4]
+            )
+            
+            # 4. 精排层 (Rerank)
+            # 面试时说：Flashrank 可以在本地 CPU 运行，极大地平衡了精度和速度
+            compressor = FlashrankRerank(model_name="ms-marco-MiniLM-L-12-v2") 
+            self.final_retriever = ContextualCompressionRetriever(
+                base_compressor=compressor, base_retriever=ensemble_retriever
+            )
+            logger.info("✅ 混合检索与精排层初始化成功")
+        except Exception as e:
+            logger.error(f"❌ 初始化检索器失败: {e}")
 
-参考文档内容：
-{context}"""
-
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            ("human", "{input}"),
-        ])
-
-        question_answer_chain = create_stuff_documents_chain(self.llm, prompt)
-        self.rag_chain = create_retrieval_chain(self.retriever, question_answer_chain)
+    def format_docs(self, docs):
+        """将检索到的文档片段合并"""
+        return "\n\n".join(doc.page_content for doc in docs)
 
     def ask(self, question: str) -> Dict[str, Any]:
-        """用户提问入口"""
-        logger.info(f"收到问题: {question}")
-        result = self.rag_chain.invoke({"input": question})
+        """
+        问答执行入口
+        """
+        # 1. 容错处理：如果没上传文档就问问题
+        if not self.final_retriever:
+            # 尝试从向量库直接恢复（针对重启后已存在向量库的情况）
+            # 这里简化处理，直接提示上传
+            return {
+                "answer": "知识库暂未就绪，请先上传 PDF 文档。",
+                "sources": []
+            }
+
+        logger.info(f"🔍 正在处理提问: {question}")
         
-        return {
-            "answer": result["answer"],
-            "sources": [doc.metadata.get("source", "未知") for doc in result.get("context", [])]
-        }
+        try:
+            # 2. 检索逻辑
+            retrieved_docs = self.final_retriever.invoke(question)
+            
+            # 3. 构建提示词（面试点：严格的角色定义与背景限制）
+            system_prompt = """你是一个专业的工业售后专家。请根据提供的[参考上下文]回答问题。
+            
+[规则]
+- 只能根据上下文回答，不要瞎编。
+- 若无法找到答案，请回答："抱歉，当前技术手册中没有找到关于'{input}'的操作指南。"
+- 来源必须注明文件名。
+
+[上下文]
+{context}"""
+
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", system_prompt),
+                ("human", "{input}"),
+            ])
+
+            # 4. 运行链
+            # 用 list(set(...)) 这种写法显得你的代码很细心，处理了重复来源
+            sources = ", ".join(list(set(d.metadata.get("source", "未知") for d in retrieved_docs)))
+            
+            chain = (
+                {
+                    "context": lambda x: self.format_docs(retrieved_docs),
+                    "input": RunnablePassthrough()
+                }
+                | prompt
+                | self.llm
+                | StrOutputParser()
+            )
+            
+            answer = chain.invoke(question)
+            
+            return {
+                "answer": answer,
+                "sources": [doc.metadata for doc in retrieved_docs]
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ 问答流程出错: {e}")
+            return {"answer": f"处理出错：{str(e)}", "sources": []}

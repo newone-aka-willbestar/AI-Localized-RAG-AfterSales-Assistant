@@ -1,84 +1,120 @@
 import streamlit as st
 import requests
+import json
+import os
+from pathlib import Path
 
 st.set_page_config(page_title="华科制造智能售后客服", page_icon="🤖", layout="wide")
 
 API_BASE_URL = "http://localhost:8000"
+REPORT_PATH = "test/evaluation_report.json"
 
-st.title("华科制造智能售后客服系统")
-st.markdown("基于 RAG 的本地智能客服 · 支持文档上传")
-
-# 侧边栏
+# --- 侧边栏：功能切换 ---
 with st.sidebar:
-    st.subheader("系统设置")
-    api_key = st.text_input("API Key", value="your-secret-key-2026", type="password")
+    st.title("🛠️ 管理后台")
+    menu = st.radio("选择功能", ["智能客服对话", "系统评估看板"])
     st.divider()
     
-    st.subheader("文档上传")
-    uploaded_file = st.file_uploader("上传产品手册 / PDF", type=["pdf"])
+    st.subheader("系统设置")
+    api_key = st.text_input("API Key", value="your-secret-key-2026", type="password")
     
-    if uploaded_file and st.button("上传到知识库", type="primary"):
-        with st.spinner("正在上传并向量化..."):
+    st.subheader("文档管理")
+    uploaded_file = st.file_uploader("上传产品手册 / PDF", type=["pdf"])
+    if uploaded_file and st.button("开始向量化上传", type="primary"):
+        with st.spinner("正在解析文档并构建索引..."):
             files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
             headers = {"X-API-Key": api_key}
             try:
                 resp = requests.post(f"{API_BASE_URL}/upload", files=files, headers=headers)
                 if resp.status_code == 200:
-                    st.success(f"✅ {uploaded_file.name} 上传成功！")
+                    st.success(f"✅ {uploaded_file.name} 已加入知识库")
                 else:
-                    st.error(f"上传失败: {resp.json().get('detail', resp.text)}")
+                    st.error(f"处理失败: {resp.json().get('detail', resp.text)}")
             except Exception as e:
-                st.error(f"上传异常: {e}")
+                st.error(f"连接 API 失败: {e}")
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# --- 逻辑 A：智能客服对话界面 ---
+if menu == "智能客服对话":
+    st.title("🤖 华科制造 AI 智能售后")
+    st.caption("基于 RAG 混合检索技术 · 实时参考技术手册回答问题")
 
-# 显示聊天记录
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    # 渲染历史消息
+    for i, msg in enumerate(st.session_state.messages):
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if msg["role"] == "assistant" and "sources" in msg:
+                with st.expander("🔍 查看检索到的原文片段"):
+                    for src in msg["sources"]:
+                        st.info(f"📄 来源: {src.get('source', '未知')} (第 {src.get('page', '?')} 页)\n\n内容: {src.get('content_excerpt', '...')}")
+
+    # 用户输入
+    if prompt := st.chat_input("请描述设备故障或查询参数..."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        with st.chat_message("assistant"):
+            with st.spinner("正在检索手册并生成回答..."):
+                try:
+                    headers = {"X-API-Key": api_key}
+                    resp = requests.post(
+                        f"{API_BASE_URL}/ask",
+                        json={"question": prompt},
+                        headers=headers,
+                        timeout=180
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        answer = data.get("answer", "未能生成答案")
+                        sources = data.get("sources", [])
+                        
+                        st.markdown(answer)
+                        # 面试加分点：反馈按钮
+                        col1, col2 = st.columns([1, 10])
+                        with col1: st.button("👍", key=f"up_{len(st.session_state.messages)}")
+                        with col2: st.button("👎", key=f"down_{len(st.session_state.messages)}")
+                        
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": answer,
+                            "sources": sources
+                        })
+                    else:
+                        st.error("API 响应异常")
+                except Exception as e:
+                    st.error(f"发生错误: {e}")
+
+# --- 逻辑 B：系统评估看板 (这就是你的量化成果展示) ---
+elif menu == "系统评估看板":
+    st.title("📊 系统性能与准确率评估")
+    
+    if os.path.exists(REPORT_PATH):
+        with open(REPORT_PATH, "r", encoding="utf-8") as f:
+            report = json.load(f)
         
-        if msg["role"] == "assistant" and "sources" in msg:
-            with st.expander("📚 参考来源"):
-                sources = msg["sources"]
-                if isinstance(sources, list):
-                    for i, src in enumerate(sources, 1):
-                        if isinstance(src, dict):
-                            source_name = src.get("metadata", {}).get("source", "未知文档")
-                        else:
-                            source_name = str(src)
-                        st.write(f"**{i}.** {source_name}")
-
-# 用户输入
-if prompt := st.chat_input("请输入您的问题，例如：这个设备的保修期是多久？"):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    with st.chat_message("assistant"):
-        with st.spinner("🤖 正在思考中...（可能需要 30~90 秒，请耐心等待）"):
-            try:
-                resp = requests.post(
-                    f"{API_BASE_URL}/ask",
-                    json={"question": prompt},
-                    headers={"X-API-Key": api_key},
-                    timeout=180          # ← 关键修复：从 60 秒改成 180 秒
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    answer = data.get("answer", "抱歉，我暂时无法回答。")
-                    sources = data.get("sources", [])
-                    
-                    st.markdown(answer)
-                    
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": answer,
-                        "sources": sources
-                    })
-                else:
-                    st.error(f"请求失败: {resp.text}")
-            except Exception as e:
-                st.error(f"发生错误: {e}")
-
-st.caption("提示：第一次提问前请先上传 PDF 文档")
+        summary = report.get("summary", {})
+        
+        # 核心指标显示
+        c1, c2, c3 = st.columns(3)
+        c1.metric("端到端准确率", summary.get("accuracy", "N/A"))
+        c2.metric("平均响应耗时", f"{summary.get('avg_latency_sec', 0)}s")
+        c3.metric("测试用例总数", summary.get("total_questions", 0))
+        
+        st.divider()
+        st.subheader("详细评测流水")
+        
+        # 将详情转为表格
+        details = report.get("details", [])
+        for item in details:
+            status = "✅ 通过" if item["is_correct"] else "❌ 失败"
+            with st.expander(f"{status} | {item['question']}"):
+                st.write(f"**AI 回答:** {item['answer']}")
+                st.write(f"**耗时:** {item['latency']}s")
+                if item.get("sources"):
+                    st.json(item["sources"])
+    else:
+        st.warning("暂无评估报告，请先运行 `python test/evaluate.py` 进行系统测算。")
+        st.info("面试建议：在本地运行评估脚本后，该页面将展示你的系统优化成果。")
