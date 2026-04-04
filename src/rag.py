@@ -10,7 +10,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class RAG:
-    """RAG 问答引擎（制造业售后服务多文档通用版）"""
+    """RAG 问答引擎"""
     
     def __init__(self):
         self.vector_store = VectorStore()
@@ -19,17 +19,19 @@ class RAG:
         self.llm = ChatOllama(
             model=settings.OLLAMA_MODEL,
             base_url=settings.OLLAMA_BASE_URL,
-            temperature=settings.TEMPERATURE
+            temperature=0.1,          # 降低温度，回答更确定
+            num_predict=1024
         )
 
-        # ================== 【修改后的通用Prompt】 ==================
+        
         system_prompt = """你是华科制造的工业产品售后服务智能专家。
 
-你必须严格基于【参考文档内容】回答用户问题。
-- 优先使用文档中的原文或高度提炼的内容进行回答。
-- 如果参考文档中没有找到相关信息，请直接回答：“根据当前上传的文档，没有找到相关内容。”
-- 回答要专业、准确、简洁，使用制造业售后服务的规范术语。
-- 不要使用“根据检索到的文档”这类话，直接给出答案。
+【核心规则 - 必须严格遵守】
+- 你只能使用【参考文档内容】中的信息来回答问题。
+- 禁止使用任何外部知识、个人经验、通用行业做法或编造内容。
+- 如果参考文档中没有明确相关信息，必须原样回答：“根据当前上传的文档，没有找到相关内容。”
+- 回答要专业、准确、简洁，尽量使用文档中的原文表述。
+- 不要添加“根据检索到的文档”“推荐性内容”等多余前缀，直接给出答案。
 
 参考文档内容：
 {context}"""
@@ -39,7 +41,6 @@ class RAG:
             ("human", "{input}"),
         ])
 
-        # 官方推荐的 RAG 链（保持不变）
         question_answer_chain = create_stuff_documents_chain(self.llm, prompt)
         self.rag_chain = create_retrieval_chain(self.retriever, question_answer_chain)
 
