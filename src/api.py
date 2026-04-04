@@ -16,15 +16,14 @@ app = FastAPI(title="华科制造 AI 智能客服")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-rag = RAG()   # 全局 RAG 实例（学习阶段够用）
+rag = RAG()   # 全局 RAG 实例
 
 class QuestionRequest(BaseModel):
     question: str
 
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
-    """上传文档 → 向量化（已修复临时文件后缀问题）"""
-    # 保留原始文件后缀，防止 PDF 被当成文本文件
+    """上传文档 → 向量化"""
     suffix = os.path.splitext(file.filename)[1].lower()
     
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -41,16 +40,25 @@ async def upload(file: UploadFile = File(...)):
         logger.info(f"✅ 文档 {file.filename} 上传成功，处理 {len(docs)} 个块")
         return {"message": f"✅ 上传成功！已处理 {len(docs)} 个文本块", "filename": file.filename}
     finally:
-        # 清理临时文件
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
 @app.post("/ask")
 async def ask(request: QuestionRequest):
-    """提问"""
+    """提问（已增强：返回context用于调试）"""
     try:
+        # 调用 RAG（假设你的 RAG.ask 支持返回 context，如果不支持请告诉我）
         result = rag.ask(request.question)
-        return result
+        
+        # 如果你的 RAG.ask 只返回字符串，我们这里加一层包装方便调试
+        if isinstance(result, str):
+            return {
+                "answer": result,
+                "note": "（调试模式：请把 src/rag.py 的 prompt 换成上面我给的版本）"
+            }
+        else:
+            # 如果 RAG 已经返回 dict，就直接返回
+            return result
     except Exception as e:
         logger.error(f"问答失败: {e}")
         raise HTTPException(status_code=500, detail="服务器内部错误")

@@ -1,7 +1,5 @@
-# src/rag.py
-# 功能：RAG 核心问答链（最简化版，适合学习）
-from langchain_classic.chains import create_retrieval_chain                
-from langchain_classic.chains.combine_documents.stuff import create_stuff_documents_chain 
+from langchain_classic.chains import create_retrieval_chain
+from langchain_classic.chains.combine_documents.stuff import create_stuff_documents_chain
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from src.vector_store import VectorStore
@@ -12,7 +10,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class RAG:
-    """RAG 问答引擎（最简化版，适合学习）"""
+    """RAG 问答引擎（制造业售后服务多文档通用版）"""
     
     def __init__(self):
         self.vector_store = VectorStore()
@@ -24,19 +22,24 @@ class RAG:
             temperature=settings.TEMPERATURE
         )
 
-        # 华科制造专属 Prompt（你可以自己修改）
-        system_prompt = """你是华科制造的智能客服助手。
-必须基于【参考内容】回答问题。
-如果不知道，就说“抱歉，此问题暂无相关信息”。
-回答要专业、友好、简洁，使用中文。"""
+        # ================== 【修改后的通用Prompt】 ==================
+        system_prompt = """你是华科制造的工业产品售后服务智能专家。
+
+你必须严格基于【参考文档内容】回答用户问题。
+- 优先使用文档中的原文或高度提炼的内容进行回答。
+- 如果参考文档中没有找到相关信息，请直接回答：“根据当前上传的文档，没有找到相关内容。”
+- 回答要专业、准确、简洁，使用制造业售后服务的规范术语。
+- 不要使用“根据检索到的文档”这类话，直接给出答案。
+
+参考文档内容：
+{context}"""
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
             ("human", "{input}"),
-            ("ai", "相关参考内容：{context}")
         ])
 
-        # 官方推荐的 RAG 链
+        # 官方推荐的 RAG 链（保持不变）
         question_answer_chain = create_stuff_documents_chain(self.llm, prompt)
         self.rag_chain = create_retrieval_chain(self.retriever, question_answer_chain)
 
