@@ -50,6 +50,20 @@ class DocumentLoader:
         file_path = Path(file_path)
         logger.info(f"🚀 正在启动深度解析: {file_path.name}")
 
+        try:
+            md_text = pymupdf4llm.to_markdown(
+                str(file_path), 
+                show_progress=False
+            )
+        except Exception as e:
+            logger.warning(f"⚠️ 高级解析失败，正在降级为基础解析: {e}")
+            import fitz  # PyMuPDF
+            doc = fitz.open(str(file_path))
+            md_text = "" 
+            for page in doc:
+                md_text += page.get_text()
+            doc.close()
+
         # A. 布局识别解析：将 PDF 转为 Markdown
         # 这种方式处理表格的效果远好于普通的 PyMuPDFLoader
         md_text = pymupdf4llm.to_markdown(str(file_path))

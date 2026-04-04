@@ -1,17 +1,21 @@
 import logging
 from typing import Dict, Any, List, Optional
 
-from langchain.retrievers import EnsembleRetriever
-from langchain_community.retrievers import BM25Retriever
+from langchain.retrievers.ensemble import EnsembleRetriever
 from langchain.retrievers.contextual_compression import ContextualCompressionRetriever
-from langchain.retrievers.document_compressors import FlashrankRerank 
+
+# 社区插件
+from langchain_community.retrievers.bm25 import BM25Retriever
+from langchain_community.document_compressors.flashrank_rerank import FlashrankRerank
+
+# 其他协议
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
+from langchain_ollama import ChatOllama
 
 from src.vector_store import VectorStore
 from src.config import settings
-from langchain_ollama import ChatOllama
 
 logger = logging.getLogger(__name__)
 

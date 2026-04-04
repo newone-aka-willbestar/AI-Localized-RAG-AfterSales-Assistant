@@ -91,30 +91,45 @@ if menu == "智能客服对话":
 elif menu == "系统评估看板":
     st.title("📊 系统性能与准确率评估")
     
+    # 检查报告文件是否存在
     if os.path.exists(REPORT_PATH):
-        with open(REPORT_PATH, "r", encoding="utf-8") as f:
-            report = json.load(f)
-        
-        summary = report.get("summary", {})
-        
-        # 核心指标显示
-        c1, c2, c3 = st.columns(3)
-        c1.metric("端到端准确率", summary.get("accuracy", "N/A"))
-        c2.metric("平均响应耗时", f"{summary.get('avg_latency_sec', 0)}s")
-        c3.metric("测试用例总数", summary.get("total_questions", 0))
-        
-        st.divider()
-        st.subheader("详细评测流水")
-        
-        # 将详情转为表格
-        details = report.get("details", [])
-        for item in details:
-            status = "✅ 通过" if item["is_correct"] else "❌ 失败"
-            with st.expander(f"{status} | {item['question']}"):
-                st.write(f"**AI 回答:** {item['answer']}")
-                st.write(f"**耗时:** {item['latency']}s")
-                if item.get("sources"):
-                    st.json(item["sources"])
+        try:
+            with open(REPORT_PATH, "r", encoding="utf-8") as f:
+                report = json.load(f)
+            
+            # 【注意缩进】summary 必须在 report 定义之后使用
+            summary = report.get("summary", {})
+            
+            # 核心指标显示
+            c1, c2, c3 = st.columns(3)
+            c1.metric("端到端准确率", summary.get("accuracy", "N/A"))
+            c2.metric("平均响应耗时", f"{summary.get('avg_latency_sec', 0)}s")
+            c3.metric("测试用例总数", summary.get("total_questions", 0))
+            
+            st.divider()
+            st.subheader("详细评测流水")
+            
+            # 渲染详细列表
+            details = report.get("details", [])
+            for item in details:
+                status = "✅ 通过" if item["is_correct"] else "❌ 失败"
+                with st.expander(f"{status} | {item['question']}"):
+                    st.write(f"**AI 回答:** {item['answer']}")
+                    st.write(f"**耗时:** {item['latency']}s")
+                    if item.get("sources"):
+                        st.json(item["sources"])
+        except Exception as e:
+            st.error(f"读取报告出错: {e}")
+            st.info("请尝试重新运行测试脚本: python test/evaluate.py")
+            
     else:
-        st.warning("暂无评估报告，请先运行 `python test/evaluate.py` 进行系统测算。")
-        st.info("面试建议：在本地运行评估脚本后，该页面将展示你的系统优化成果。")
+        # 如果文件不存在，显示引导信息
+        st.warning("⚠️ 暂无评估报告数据")
+        st.info("请按以下步骤生成报告：")
+        st.code("python test/evaluate.py")
+        st.markdown("""
+        1. 确保后端 API 已启动
+        2. 运行上面的测试脚本
+        3. 按照提示输入 y/n 进行人工评测
+        4. 刷新本页面即可查看看板
+        """)

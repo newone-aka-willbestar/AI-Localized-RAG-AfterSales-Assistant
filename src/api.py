@@ -34,43 +34,42 @@ class QuestionRequest(BaseModel):
 
 @app.post("/upload")
 async def upload(file: UploadFile = File(...), api_key: str = Depends(verify_api_key)):
-    """
-    上传文档 → 向量化 → 更新检索引擎
-    """
     suffix = os.path.splitext(file.filename)[1].lower()
-    if suffix != ".pdf":
-        raise HTTPException(status_code=400, detail="目前仅支持 PDF 格式文档")
     
-    # 使用临时文件存储上传内容
+    # 1. 创建临时文件
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(await file.read())
         tmp_path = tmp.name
 
     try:
-        # A. 加载并切分文档
+        # 2. 执行加载
         loader = DocumentLoader()
         docs = loader.load_and_split(tmp_path)
         
-        # B. 存入向量库
+        # 3. 存入向量库
         vector_store = VectorStore()
         vector_store.add_documents(docs)
         
-        # C. 【关键修改】通知 RAG 实例使用新文档初始化检索器
-        # 这一步如果不做，RAG 里的 BM25 和精排层就无法工作
+        # 4. 更新 RAG 检索器
         rag.init_retriever(docs)
         
-        logger.info(f"✅ 文档 {file.filename} 处理完成：已更新混合检索引擎")
-        return {
-            "message": f"✅ 上传成功！已处理 {len(docs)} 个文本块并更新索引", 
-            "filename": file.filename
-        }
+        return {"message": "上传成功", "filename": file.filename}
+
     except Exception as e:
-        logger.error(f"❌ 上传处理失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"文件处理失败: {str(e)}")
+        logger.error(f"❌ 处理失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
     finally:
-        # 清理临时文件
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+        # 关键修复：先显式尝试清理垃圾回收，释放文件句柄
+        import gc
+        gc.collect() 
+        
+        # 增加防御性删除
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path) # 使用 os.remove 比 os.unlink 在 Windows 上更稳一点
+        except Exception as delete_error:
+            logger.warning(f"⚠️ 临时文件清理失败（但不影响业务）: {delete_error}")
 
 @app.post("/ask")
 async def ask(request: QuestionRequest, api_key: str = Depends(verify_api_key)):
