@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import List
 
-import fitz  # 基础 PyMuPDF
+import fitz  
 import pymupdf4llm
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
