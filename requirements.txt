@@ -1,29 +1,106 @@
-# --- 基础 Web 框架 ---
-fastapi==0.115.0
-uvicorn[standard]==0.32.0
-pydantic==2.9.0
-pydantic-settings==2.5.0
-python-dotenv==1.2.2
-python-multipart==0.0.22
-httpx==0.28.1
-
-# --- LangChain 0.3 稳定生态 (禁止升级到 1.x) ---
-langchain==0.3.7
-langchain-core==0.3.15
-langchain-community==0.3.7
-langchain-ollama==0.1.0
-langchain-huggingface==1.2.1
-langchain-chroma==0.1.0
-langchain-text-splitters==0.3.0
+# ==========================================
+# 1. 核心 AI 应用框架 (LangChain 生态)
+# ==========================================
+langchain==0.2.17
+langchain-chroma==0.1.4
+langchain-community==0.2.19
+langchain-core==0.2.43
+langchain-huggingface==0.0.3
+langchain-ollama==0.1.3
+langchain-text-splitters==0.2.4
 langsmith==0.1.147
 
-# --- 检索增强相关 ---
-rank_bm25==0.2.2 
-flashrank==0.2.10
-pymupdf4llm==1.27.2.2
-pymupdf==1.24.11
-pypdf==5.0.0
+# ==========================================
+# 2. 向量数据库与检索增强 (RAG)
+# ==========================================
+chromadb==0.5.23
+chroma-hnswlib==0.7.6
+rank-bm25==0.2.2
+FlashRank==0.2.10
 
-# --- 向量存储 ---
-chromadb==1.5.5
-sentence-transformers==3.1.1
+# ==========================================
+# 3. Web 开发框架 (API 服务)
+# ==========================================
+fastapi==0.135.3
+uvicorn==0.43.0
+starlette==1.0.0
+python-multipart==0.0.22
+
+# ==========================================
+# 4. 大模型与 Embedding (嵌入模型)
+# ==========================================
+ollama==0.6.1
+sentence-transformers==5.3.0
+transformers==4.46.3
+torch==2.11.0
+huggingface_hub==0.36.2
+tokenizers==0.20.3
+safetensors==0.7.0
+
+# ==========================================
+# 5. 文档解析与处理 (PDF/文本)
+# ==========================================
+PyMuPDF==1.27.2.2
+pymupdf-layout==1.27.2.2
+pymupdf4llm==1.27.2.2
+pypdf==6.9.2
+dataclasses-json==0.6.7
+
+# ==========================================
+# 6. 数据科学与科学计算
+# ==========================================
+numpy==1.26.4
+scipy==1.17.1
+scikit-learn==1.8.0
+joblib==1.5.3
+threadpoolctl==3.6.0
+networkx==3.6.1
+sympy==1.14.0
+mpmath==1.3.0
+
+# ==========================================
+# 7. 核心工具库 (配置/请求/序列化)
+# ==========================================
+pydantic==2.12.5
+pydantic_core==2.41.5
+pydantic-settings==2.13.1
+annotated-types==0.7.0
+python-dotenv==1.2.2
+requests==2.33.1
+httpx==0.28.1
+httpcore==1.0.9
+urllib3==2.6.3
+certifi==2026.2.25
+charset-normalizer==3.4.7
+idna==3.11
+tqdm==4.67.3
+rich==14.3.3
+tenacity==8.5.0
+click==8.3.2
+typer==0.24.1
+shellingham==1.5.4
+tabulate==0.10.0
+PyYAML==6.0.3
+jsonpatch==1.33
+jsonpointer==3.1.1
+
+# ==========================================
+# 8. 异步与网络通信
+# ==========================================
+aiohttp==3.13.5
+aiosignal==1.4.0
+aiohappyeyeballs==2.6.1
+frozenlist==1.8.0
+multidict==6.7.1
+yarl==1.23.0
+websockets==16.0
+websocket-client==1.9.0
+httptools==0.7.1
+h11==0.16.0
+
+# ==========================================
+# 9. 数据库与存储
+# ==========================================
+SQLAlchemy==2.0.49
+greenlet==3.3.2
+PyPika==0.51.1
