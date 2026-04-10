@@ -19,3 +19,5 @@ __pycache__/
 # VS Code 临时设置（可选）
 .vscode/settings.json
 "@ | Set-Content -Path .gitignore -Encoding UTF8
+
+面经.txt
