@@ -44,7 +44,7 @@ class DocumentLoader:
             # 【备份方案】直接使用基础 fitz 提取文本，保证系统绝对可用
             doc = fitz.open(str(file_path))
             md_text = "\n\n".join([page.get_text() for page in doc])
-            doc.close() # 显式关闭句柄，防止 Windows 占用
+            doc.close() # 显式关闭句柄，防止 Windows 占用 
 
         # 执行分片
         header_splits = self.header_splitter.split_text(md_text)

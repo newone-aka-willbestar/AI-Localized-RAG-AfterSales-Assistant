@@ -6,6 +6,7 @@ env/
 ENV/
 
 # Python 缓存和编译文件
+
 __pycache__/
 *.pyc
 *.pyo
@@ -13,10 +14,12 @@ __pycache__/
 *.py[cod]
 
 # 环境变量文件
+
 .env
 .env.local
 .env.*.local
 # VS Code 临时设置（可选）
+
 .vscode/settings.json
 "@ | Set-Content -Path .gitignore -Encoding UTF8
 
