@@ -1,6 +1,11 @@
-# AI Resume & Interview System
+# Localized RAG After-Sales Assistant
 
-**🛠️ 华科制造 AI 智能售后助理 (Enterprise RAG Assistant)**
+面向制造业售后文档问答场景的本地化 RAG 系统，支持 PDF 文档解析、混合检索、重排序、问答生成、评测脚本与 Docker 部署。
+
+## 项目定位
+
+本项目模拟制造业售后技术手册问答场景，针对复杂 PDF 文档中的参数表格、故障代码、型号说明等内容，构建一套可本地部署的智能问答系统。
+
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com/)
@@ -46,8 +51,8 @@
 - Ollama 已安装并运行（推荐使用 Qwen2-7B）
 - 支持 Docker（强烈推荐）
 ### 1. 克隆仓库
-git clone https://github.com/newone-aka-willbestar/ai-resume-interview-system.git
-cd ai-resume-interview-system
+git clone https://github.com/newone-aka-willbestar/AI-Localized-RAG-AfterSales-Assistant.git
+cd AI-Localized-RAG-AfterSales-Assistant
 
 ### 2. 启动 Ollama 服务
 ollama serve

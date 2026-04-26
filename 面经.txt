@@ -1,0 +1,58 @@
+## 核心定位：100% 本地化 RAG 智能售后客服系统，专为制造业 PDF 技术手册优化（解决表格解析、故障代码精确匹配、幻觉等问题）。
+RAG:外置的数据仓库，用于大模型的回答依据
+
+## 技术栈（完全匹配 requirements.txt 和代码）：
+前端：Streamlit (app.py)
+后端：FastAPI + Uvicorn (src/api.py)
+RAG 核心：LangChain（0.2.x 系列）+ ChromaDB + BGE-small-zh-v1.5 + Qwen2-7B (Ollama)
+文档解析：PyMuPDF + pymupdf4llm（布局感知转 Markdown，保留表格）
+检索：Hybrid Search（Vector + BM25）+ Flashrank 重排序
+部署：Docker + docker-compose（Ollama + API 一键启动）
+评测体系：evaluate.py + test/evaluation_report.json（人工打分 Benchmark）
+pymupdf4llm 专门为大语言模型（LLM）、RAG 系统设计的 PDF 解析工具，完全基于 PyMuPDF 开发，是 PyMuPDF 的「LLM 友好封装」。（布局感知）
+Hybrid Search（Vector + BM25）：
+Vector 和 BM25 是完美互补的：
+Vector 负责「语义泛化匹配」，解决模糊问题、同义词问题；
+BM25 负责「精确关键词匹配」，解决设备型号、参数、表格数字问题；
+用户提问后，同时用 Vector 和 BM25 两路检索，各自返回 Top-K（比如 Top-10）的候选段落；
+这时候就需要Flashrank做轻量级语义重排序，把最相关的段落精准排到 Top-3，直接喂给大模型。
+Flashrank 是什么？
+定位：专门为 RAG 设计的超轻量级、超快语义重排序库，基于预训练的 Cross-Encoder 模型，但优化得非常小，速度极快。
+Chroma 是轻量级本地化向量数据库，BGE-small-zh 是专为中文优化的轻量级向量模型
+
+
+## 文件结构
+app.py：Streamlit 前端（聊天 + 上传 + 评估看板）
+src/api.py：FastAPI 接口（/upload、/ask + API Key 验证）
+src/config.py：Pydantic 配置管理
+src/document_loader.py：PDF 解析核心（pymupdf4llm）
+src/vector_store.py：Chroma + 本地/镜像下载 BGE 模型
+src/rag.py：核心 RAG 类（EnsembleRetriever + Flashrank + 提示词 + 元数据清洗）
+src/hyde.py：HyDE 模块（目前未在主链路使用，属于可选增强）
+evaluate.py、docker-compose.yml、Dockerfile、requirements.txt 等辅助文件
+
+## 项目背景 & 痛点
+传统制造业 PDF 手册：几百页 + 大量参数表格 + 专用故障码（E05、X-100）。
+普通 RAG 三大死穴：表格解析乱码、型号精确匹配差、LLM 幻觉。
+本项目解决方案：布局感知解析 + 混合检索 + 重排序 + 本地化 → 准确率从 ~58% 提升到 83%+（evaluate.py 数据）。
+## 系统架构
+用户（Streamlit） → FastAPI (/upload 或 /ask)
+                  ↓
+           DocumentLoader (pymupdf4llm → Markdown)
+                  ↓
+           VectorStore (Chroma + BGE-small-zh)
+                  ↓
+           RAG (Hybrid: Vector+BM25 → Flashrank 重排序 → Qwen2-7B)
+                  ↓
+           返回答案 + 来源片段
+HyDE（hyde.py）：短问题时生成“假设文档”增强检索（目前未强制开启，可作为加分点）。
+持久化：chroma_db + docs_cache.pkl（启动时自动加载）。
+
+##app.py
+这是整个系统的“门面”，用一个叫 Streamlit 的工具（简单说就是“用 Python 就能画网页”的小工具）做出来的聊天窗口 + 管理后台。你在浏览器里看到的“智能客服对话”和“系统评估看板”都是它负责的。
+# 这行是设置网页标题和布局
+st.set_page_config(page_title="华科制造智能售后客服", layout="wide")
+# 侧边栏：让你上传 PDF
+if uploaded_file and st.button("开始向量化上传"):
+    # 把 PDF 发给后端
+    resp = requests.post(f"{API_BASE_URL}/upload", files=files, headers=headers)
