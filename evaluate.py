@@ -1,4 +1,5 @@
 import json
+import os
 import requests
 import time
 import argparse
@@ -9,8 +10,11 @@ from datetime import datetime
 # 配置测试案例路径
 DEFAULT_TEST_FILE = "test/test_cases.json"
 DEFAULT_REPORT_PATH = "test/evaluation_report.json"
-# --- 修复点：设置 API KEY ---
-API_KEY = "your-secret-key-2026" 
+
+# 从环境变量读取 API Key，不硬编码
+# 本地运行：在 .env 里设置 API_KEY=xxx
+# 也可以通过命令行参数传入：python evaluate.py --key xxx
+API_KEY = os.environ.get("API_KEY", "")
 
 def load_test_cases(file_path: str):
     """加载测试用例"""
@@ -119,12 +123,17 @@ def evaluate(api_url: str, test_file: str):
         json.dump(final_report, f, ensure_ascii=False, indent=2)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="应届生项目 RAG 评估工具")
+    parser = argparse.ArgumentParser(description="RAG 系统评估工具")
     parser.add_argument("--api", default="http://localhost:8000/ask", help="FastAPI 地址")
     parser.add_argument("--file", default=DEFAULT_TEST_FILE, help="测试用例 JSON 文件路径")
-    
+    parser.add_argument("--key", default="", help="API Key（优先级高于环境变量）")
+
     args = parser.parse_args()
-    
+
+    # 命令行参数优先级 > 环境变量
+    if args.key:
+        API_KEY = args.key
+
     try:
         evaluate(args.api, args.file)
     except KeyboardInterrupt:

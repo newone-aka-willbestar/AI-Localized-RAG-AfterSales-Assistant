@@ -84,6 +84,12 @@ class RAG:
     向量检索(k=5) ─┐
                    ├→ EnsembleRetriever → FlashrankRerank(top4) → LLM生成
     BM25检索(k=5)  ─┘
+
+    BM25 bug 修复说明：
+    原版 init_retriever(new_docs) 每次只用新上传的文档重建 BM25，
+    导致多次上传后只有最后一批文档参与关键词检索。
+    修复方案：用 all_documents 列表累积所有文档，
+    新增文档时追加到列表再整体重建 BM25。
     """
 
     def __init__(self, documents: Optional[List] = None):
@@ -91,6 +97,8 @@ class RAG:
         self.vector_store = VectorStore()
         self.llm = get_llm()
         self.final_retriever = None
+        # all_documents 是 BM25 的数据源，累积所有上传过的文档
+        self.all_documents: List = []
         self.cache_path = os.path.join(settings.VECTORSTORE_PATH, "docs_cache.pkl")
 
         if documents:
@@ -108,6 +116,19 @@ class RAG:
                 self.init_retriever(cached_docs, save_cache=False)
             except Exception as e:
                 logger.error(f"缓存恢复失败: {e}")
+
+    def add_documents(self, new_docs: List) -> None:
+        """
+        追加新文档并重建检索器。
+
+        这是修复 BM25 覆盖 bug 的核心方法：
+        - 把新文档追加到 all_documents（累积，不替换）
+        - 用完整的 all_documents 重建 BM25 索引
+        - 向量库在 api.py 里单独写入，这里只管 BM25 这侧
+        """
+        self.all_documents.extend(new_docs)
+        self.init_retriever(self.all_documents)
+        logger.info(f"知识库累计文档数: {len(self.all_documents)} 块")
 
     def init_retriever(self, all_documents: List, save_cache: bool = True):
         """构建双路检索 + 精排架构（懒加载所有 langchain 依赖）"""

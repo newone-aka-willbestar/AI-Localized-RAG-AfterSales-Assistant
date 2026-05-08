@@ -6,7 +6,10 @@ from pathlib import Path
 
 st.set_page_config(page_title="华科制造智能售后客服", page_icon="🤖", layout="wide")
 
-API_BASE_URL = "http://localhost:8000"
+# 从环境变量读取，部署时在服务器上设置，本地开发时在 .env 里配置
+# 不写死在代码里，避免密钥泄露到 GitHub
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
+DEFAULT_API_KEY = os.environ.get("API_KEY", "")
 REPORT_PATH = "test/evaluation_report.json"
 
 # --- 侧边栏：功能切换 ---
@@ -16,7 +19,7 @@ with st.sidebar:
     st.divider()
     
     st.subheader("系统设置")
-    api_key = st.text_input("API Key", value="your-secret-key-2026", type="password")
+    api_key = st.text_input("API Key", value=DEFAULT_API_KEY, type="password")
     
     st.subheader("文档管理")
     uploaded_file = st.file_uploader("上传产品手册 / PDF", type=["pdf"])
@@ -72,7 +75,6 @@ if menu == "智能客服对话":
                         sources = data.get("sources", [])
                         
                         st.markdown(answer)
-                        # 面试加分点：反馈按钮
                         col1, col2 = st.columns([1, 10])
                         with col1: st.button("👍", key=f"up_{len(st.session_state.messages)}")
                         with col2: st.button("👎", key=f"down_{len(st.session_state.messages)}")
@@ -87,7 +89,7 @@ if menu == "智能客服对话":
                 except Exception as e:
                     st.error(f"发生错误: {e}")
 
-# --- 逻辑 B：系统评估看板 (这就是你的量化成果展示) ---
+# --- 逻辑 B：系统评估看板 ---
 elif menu == "系统评估看板":
     st.title("📊 系统性能与准确率评估")
     
