@@ -54,9 +54,18 @@ class Settings(BaseSettings):
     RERANK_MODEL_NAME: str = "ms-marco-MiniLM-L-12-v2"
 
     # ==========================================
-    # 存储路径
+    # Qdrant 向量数据库
     # ==========================================
-    VECTORSTORE_PATH: str = "./chroma_db"
+    QDRANT_HOST: str = "localhost"
+    QDRANT_PORT: int = 6333
+    QDRANT_COLLECTION: str = "knowledge_base"
+    # bge-small-zh-v1.5 输出 512 维向量；换模型时同步修改这里
+    EMBEDDING_DIM: int = 512
+
+    # ==========================================
+    # 存储路径（BM25 文档缓存，供断电重启恢复用）
+    # ==========================================
+    VECTORSTORE_PATH: str = "./rag_cache"
 
     # ==========================================
     # 翻译配置（第二阶段使用）

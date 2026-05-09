@@ -1,23 +1,69 @@
+version: "3.8"
+
+# ==========================================
+# 本地开发一键启动：
+#   docker compose up -d          # 后台启动所有服务
+#   docker compose up qdrant -d   # 只启动 Qdrant（本地已有 Ollama 时）
+#   docker compose down           # 停止并删除容器（数据不丢失）
+#
+# Qdrant 管理界面：http://localhost:6333/dashboard
+# ==========================================
+
 services:
+  # ------------------------------------------
+  # Qdrant 向量数据库（替换原 ChromaDB）
+  # ------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.9.2
+    container_name: rag_qdrant
+    ports:
+      - "6333:6333"   # HTTP REST API + Web Dashboard
+      - "6334:6334"   # gRPC（高性能批量写入用）
+    volumes:
+      # 数据持久化到本地目录，重建容器后数据不丢失
+      - ./qdrant_storage:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ------------------------------------------
+  # Ollama 本地大模型服务
+  # ------------------------------------------
   ollama:
     image: ollama/ollama
-    container_name: ollama
+    container_name: rag_ollama
     ports:
       - "11434:11434"
     volumes:
-      - ollama:/root/.ollama
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
 
+  # ------------------------------------------
+  # FastAPI 后端（依赖 Qdrant + Ollama 就绪）
+  # ------------------------------------------
   api:
     build: .
-    container_name: huake-ai-service
+    container_name: rag_api
     ports:
       - "8000:8000"
     environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
       - OLLAMA_BASE_URL=http://ollama:11434
+      - LLM_PROVIDER=ollama
     depends_on:
-      - ollama
+      qdrant:
+        condition: service_healthy
+      ollama:
+        condition: service_started
     volumes:
-      - ./chroma_db:/app/chroma_db
+      - ./rag_cache:/app/rag_cache
 
 volumes:
-  ollama:
+  ollama_models:

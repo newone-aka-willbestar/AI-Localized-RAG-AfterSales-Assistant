@@ -2,7 +2,6 @@
 # 1. 核心 AI 应用框架 (LangChain 生态)
 # ==========================================
 langchain==0.2.17
-langchain-chroma==0.1.4
 langchain-community==0.2.19
 langchain-core==0.2.43
 langchain-huggingface==0.0.3
@@ -13,8 +12,8 @@ langsmith==0.1.147
 # ==========================================
 # 2. 向量数据库与检索增强 (RAG)
 # ==========================================
-chromadb==0.5.23
-chroma-hnswlib==0.7.6
+qdrant-client==1.17.1
+langchain-qdrant==1.1.0
 rank-bm25==0.2.2
 FlashRank==0.2.10
 
