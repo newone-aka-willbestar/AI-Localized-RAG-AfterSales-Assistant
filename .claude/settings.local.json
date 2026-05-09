@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\".venv\\\\Scripts\\\\python.exe\" -m pytest tests/ -v)",
+      "Bash(git push *)",
+      "Bash(docker --version)",
+      "Bash(git checkout *)",
+      "Bash(git reset *)",
+      "Bash(gh auth *)",
+      "PowerShell(cd \"D:\\\\ai-resume-interview-system\"; $env:GIT_SSL_NO_VERIFY=\"true\"; git push --force-with-lease origin claude/jolly-bartik-2c9563 2>&1)"
+    ]
+  }
+}
