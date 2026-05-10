@@ -58,8 +58,8 @@ class HyDE:
         """
         将用户问题变换为假设文档。
 
-        @traceable 让此函数在 LangSmith 追踪树中独立显示为 "HyDE.generate"，
-        可以看到输入问题、输出假设文档、以及内部 LLM 调用的 token 消耗。
+        chain.invoke 传入 run_name="HyDE.generate"，LangSmith 追踪树中
+        会独立显示此节点，可以看到输入问题、输出假设文档及 token 消耗。
 
         Returns:
             str: 假设文档文本（成功时）或原始问题（失败时降级）

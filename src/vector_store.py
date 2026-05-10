@@ -36,8 +36,7 @@ def _build_embeddings():
     """
     from langchain_huggingface import HuggingFaceEmbeddings  # 懒加载，避免 pydantic_v1 问题
 
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    local_path = os.path.join(base_dir, "models", "bge-small-zh-v1.5")
+    local_path = os.path.abspath(settings.EMBEDDING_MODEL_PATH)
     vocab_file = os.path.join(local_path, "vocab.txt")
 
     if os.path.exists(vocab_file):
@@ -45,7 +44,7 @@ def _build_embeddings():
         logger.info(f"使用本地 Embedding 模型: {model_name}")
     else:
         model_name = "BAAI/bge-small-zh-v1.5"
-        logger.warning("本地模型不存在，正在通过镜像站下载...")
+        logger.warning(f"本地模型不存在 ({local_path})，正在通过镜像站下载...")
 
     return HuggingFaceEmbeddings(
         model_name=model_name,

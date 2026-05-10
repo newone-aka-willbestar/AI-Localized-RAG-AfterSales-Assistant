@@ -1,6 +1,6 @@
 """
-测试 Step 1-2 的修复内容：
-1. 硬编码密钥消灭 - app.py/evaluate.py 不再写死 API Key
+测试 API 层的关键约束：
+1. 无硬编码密钥 - src/api.py 的 API Key 必须来自 settings（读环境变量）
 2. BM25 累积 bug 修复 - add_documents 追加而非替换
 3. /health 接口存在且返回正确字段
 """
@@ -10,42 +10,27 @@ from unittest.mock import patch, MagicMock
 
 
 class TestNoHardcodedSecrets:
-    """验证代码里不再有硬编码的密钥"""
+    """验证 src/api.py 里没有硬编码密钥"""
 
-    def test_app_py_no_hardcoded_key(self):
-        """
-        app.py 里不应该有硬编码的 API Key 默认值。
-        用文本扫描检测，比运行代码更直接。
-        """
-        with open("app.py", "r", encoding="utf-8") as f:
-            content = f.read()
-
-        # 这些字符串不应该出现在源代码里
-        forbidden = ["your-secret-key-2026", "your-secret-key"]
-        for secret in forbidden:
-            assert secret not in content, (
-                f"app.py 里发现硬编码密钥: '{secret}'，"
-                f"请改为从环境变量读取"
-            )
-
-    def test_evaluate_py_no_hardcoded_key(self):
-        """evaluate.py 里不应该有硬编码的 API Key"""
-        with open("evaluate.py", "r", encoding="utf-8") as f:
+    def test_api_py_no_hardcoded_key(self):
+        """src/api.py 里不应该出现硬编码的 API Key 值"""
+        with open("src/api.py", "r", encoding="utf-8") as f:
             content = f.read()
 
         forbidden = ["your-secret-key-2026", "your-secret-key"]
         for secret in forbidden:
             assert secret not in content, (
-                f"evaluate.py 里发现硬编码密钥: '{secret}'"
+                f"src/api.py 里发现硬编码密钥: '{secret}'，"
+                f"应通过 settings.API_KEY 从环境变量读取"
             )
 
-    def test_app_py_reads_key_from_env(self):
-        """app.py 应该从 os.environ 读取 API_KEY"""
-        with open("app.py", "r", encoding="utf-8") as f:
+    def test_api_key_comes_from_settings(self):
+        """verify_api_key 应该对比 settings.API_KEY，而不是硬编码字符串"""
+        with open("src/api.py", "r", encoding="utf-8") as f:
             content = f.read()
 
-        assert 'os.environ' in content or 'os.getenv' in content, \
-            "app.py 应该用 os.environ 读取 API_KEY"
+        assert "settings.API_KEY" in content, \
+            "src/api.py 的鉴权逻辑应该读取 settings.API_KEY"
 
 
 class TestBM25AccumulationFix:

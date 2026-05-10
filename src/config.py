@@ -89,7 +89,6 @@ class Settings(BaseSettings):
     # 是否对抓取到的非中文网页内容自动翻译为中文
     # 翻译调用的是 LLM_PROVIDER 指定的模型，开启会增加 API 调用次数
     TRANSLATION_ENABLED: bool = False
-    TRANSLATION_TARGET_LANG: str = "zh"
 
     # ==========================================
     # LangSmith 链路追踪

@@ -127,7 +127,7 @@ def _extract_with_requests_fallback(url: str) -> Optional[str]:
                 if self._in_p:
                     self._buf.append(data)
 
-        resp = requests.get(url, timeout=15, headers={
+        resp = requests.get(url, timeout=settings.SCRAPER_TIMEOUT, headers={
             "User-Agent": "Mozilla/5.0 (compatible; IndustrialRAGBot/1.0)"
         })
         resp.raise_for_status()

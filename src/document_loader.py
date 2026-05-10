@@ -30,7 +30,7 @@ class DocumentLoader:
 
     def load_and_split(self, file_path: str) -> List[Document]:
         file_path_obj = Path(file_path)
-        logger.info(f"🚀 开始解析文档: {file_path_obj.name}")
+        logger.info(f"开始解析文档: {file_path_obj.name}")
 
         md_text = ""
         try:
@@ -40,7 +40,7 @@ class DocumentLoader:
             if not md_text or len(md_text) < 10:
                 raise ValueError("Markdown 提取内容过少")
         except Exception as e:
-            logger.warning(f"⚠️ 高级解析引擎异常，正在启动基础文本提取备份: {e}")
+            logger.warning(f"高级解析引擎异常，启动基础文本提取备份: {e}")
             # 【备份方案】直接使用基础 fitz 提取文本，保证系统绝对可用
             doc = fitz.open(str(file_path))
             md_text = "\n\n".join([page.get_text() for page in doc])
