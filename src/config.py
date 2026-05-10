@@ -76,9 +76,18 @@ class Settings(BaseSettings):
     HYDE_ENABLED: bool = True
 
     # ==========================================
-    # 翻译配置（第二阶段使用）
+    # 网页抓取配置
     # ==========================================
-    TRANSLATION_PROVIDER: Literal["ollama", "deepseek", "none"] = "ollama"
+    # 抓取超时（秒）
+    SCRAPER_TIMEOUT: int = 15
+    # 每次 /crawl 最多接受的 URL 数量，防止滥用
+    SCRAPER_MAX_URLS_PER_REQUEST: int = 10
+
+    # ==========================================
+    # 翻译配置
+    # ==========================================
+    # 是否对非中文网页内容自动翻译
+    TRANSLATION_ENABLED: bool = False
     TRANSLATION_TARGET_LANG: str = "zh"
 
     # ==========================================

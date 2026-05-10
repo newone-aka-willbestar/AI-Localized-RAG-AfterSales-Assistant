@@ -14,6 +14,8 @@ import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 
+from typing import List
+
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -22,6 +24,7 @@ from src.config import settings
 from src.document_loader import DocumentLoader
 from src.rag import RAG
 from src.vector_store import VectorStore
+from src.web_scraper import WebScraper, WebScraperError, get_url_store
 
 logging.basicConfig(level=settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
@@ -52,6 +55,12 @@ rag = RAG()
 
 class QuestionRequest(BaseModel):
     question: str
+
+
+class CrawlRequest(BaseModel):
+    urls: List[str]
+    force: bool = False       # True：忽略去重，强制重新抓取
+    translate: bool = True    # True：非中文内容自动翻译（需 TRANSLATION_ENABLED=true）
 
 
 async def verify_api_key(x_api_key: str = Header(None)):
@@ -133,6 +142,86 @@ async def upload(file: UploadFile = File(...), api_key: str = Depends(verify_api
             except OSError as e:
                 # 记录错误但不崩溃，Windows 偶尔会文件占用
                 logger.warning(f"临时文件删除失败（不影响功能）: {e}")
+
+
+@app.post("/crawl")
+async def crawl(request: CrawlRequest, api_key: str = Depends(verify_api_key)):
+    """
+    批量抓取网页并入库。
+
+    - 每次请求最多 SCRAPER_MAX_URLS_PER_REQUEST 个 URL
+    - 已抓取过的 URL 默认跳过（force=True 强制重抓）
+    - 非中文内容在 TRANSLATION_ENABLED=true 时自动翻译
+    - 部分失败不影响其他 URL，错误信息单独返回
+
+    返回格式：
+    {
+      "succeeded": [{"url": ..., "chunks": N}, ...],
+      "skipped":   ["url1", ...],
+      "failed":    [{"url": ..., "error": "..."}, ...]
+    }
+    """
+    urls = request.urls
+    if len(urls) > settings.SCRAPER_MAX_URLS_PER_REQUEST:
+        raise HTTPException(
+            status_code=400,
+            detail=f"单次最多 {settings.SCRAPER_MAX_URLS_PER_REQUEST} 个 URL，"
+                   f"当前传入 {len(urls)} 个"
+        )
+    if not urls:
+        raise HTTPException(status_code=400, detail="urls 不能为空")
+
+    loop = asyncio.get_event_loop()
+    scraper = WebScraper()
+    vector_store = VectorStore()
+
+    succeeded = []
+    skipped = []
+    failed = []
+
+    for url in urls:
+        try:
+            # scrape 是同步 IO 密集型，放线程池执行
+            docs = await loop.run_in_executor(
+                _executor,
+                lambda u=url: scraper.scrape(u, force=request.force, translate=request.translate)
+            )
+
+            if not docs:
+                # scrape 返回空列表 = URL 已被去重跳过
+                skipped.append(url)
+                continue
+
+            # 写入向量库和 RAG 检索器
+            await loop.run_in_executor(_executor, vector_store.add_documents, docs)
+            await loop.run_in_executor(_executor, rag.add_documents, docs)
+
+            succeeded.append({"url": url, "chunks": len(docs)})
+            logger.info(f"URL 入库成功: {url}，{len(docs)} 块")
+
+        except WebScraperError as e:
+            failed.append({"url": url, "error": str(e)})
+            logger.warning(f"抓取失败: {url} → {e}")
+        except Exception as e:
+            failed.append({"url": url, "error": f"内部错误: {e}"})
+            logger.error(f"处理 URL 时出现意外错误: {url}", exc_info=True)
+
+    return {
+        "succeeded": succeeded,
+        "skipped": skipped,
+        "failed": failed,
+        "total_chunks_in_kb": len(rag.all_documents),
+    }
+
+
+@app.get("/crawl/history")
+async def crawl_history(api_key: str = Depends(verify_api_key)):
+    """查看已抓取的 URL 列表"""
+    store = get_url_store()
+    return {
+        "total": len(store),
+        "urls": store.all_urls(),
+    }
 
 
 @app.post("/ask")
