@@ -179,15 +179,20 @@ async def health():
 @app.post("/upload")
 async def upload(file: UploadFile = File(...), api_key: str = Depends(verify_api_key)):
     """
-    上传 PDF，解析后加入知识库。
+    上传文档（PDF / Word），解析后加入知识库。
 
+    支持格式：.pdf / .docx
     修复了原版的 BM25 覆盖 bug：
     原版：rag.init_retriever(新文档)  → BM25 只认识新文档，旧文档丢失
     现版：rag.add_documents(新文档)   → 累积所有文档，BM25 始终完整
     """
+    from src.document_loader import SUPPORTED_EXTENSIONS
     suffix = os.path.splitext(file.filename)[1].lower()
-    if suffix != ".pdf":
-        raise HTTPException(status_code=400, detail="只支持 PDF 格式")
+    if suffix not in SUPPORTED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的格式 '{suffix}'，当前支持：{', '.join(SUPPORTED_EXTENSIONS)}"
+        )
 
     if file.size and file.size > settings.MAX_UPLOAD_SIZE:
         raise HTTPException(

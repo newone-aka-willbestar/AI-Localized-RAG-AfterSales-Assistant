@@ -4,6 +4,13 @@ import json
 import os
 import uuid
 
+# Word 导出（可选，未安装 python-docx 时降级）
+try:
+    from src.docx_exporter import markdown_to_docx_bytes
+    _DOCX_AVAILABLE = True
+except Exception:
+    _DOCX_AVAILABLE = False
+
 st.set_page_config(page_title="AI 论文助理", page_icon="📚", layout="wide")
 
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
@@ -33,8 +40,8 @@ with st.sidebar:
     api_key = st.text_input("API Key", value=DEFAULT_API_KEY, type="password")
 
     # --- PDF 上传 ---
-    st.subheader("📄 上传 PDF 文献")
-    uploaded_file = st.file_uploader("选择 PDF 文件", type=["pdf"])
+    st.subheader("📄 上传文献（PDF / Word）")
+    uploaded_file = st.file_uploader("选择文件", type=["pdf", "docx"])
     if uploaded_file and st.button("解析并入库", type="primary"):
         with st.spinner("正在解析文档并构建索引..."):
             files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
@@ -235,23 +242,42 @@ elif menu == "📊 报表生成":
 
                         # 下载按钮
                         st.divider()
-                        col_dl1, col_dl2 = st.columns(2)
+                        safe_name = topic[:20].replace(" ", "_").replace("/", "_")
+                        col_dl1, col_dl2, col_dl3 = st.columns(3)
                         with col_dl1:
                             st.download_button(
-                                label="⬇️ 下载 Markdown (.md)",
+                                label="⬇️ Markdown (.md)",
                                 data=report_text.encode("utf-8"),
-                                file_name=f"report_{topic[:20]}.md",
+                                file_name=f"report_{safe_name}.md",
                                 mime="text/markdown",
                                 use_container_width=True,
                             )
                         with col_dl2:
                             st.download_button(
-                                label="⬇️ 下载纯文本 (.txt)",
+                                label="⬇️ 纯文本 (.txt)",
                                 data=report_text.encode("utf-8"),
-                                file_name=f"report_{topic[:20]}.txt",
+                                file_name=f"report_{safe_name}.txt",
                                 mime="text/plain",
                                 use_container_width=True,
                             )
+                        with col_dl3:
+                            if _DOCX_AVAILABLE:
+                                try:
+                                    docx_bytes = markdown_to_docx_bytes(
+                                        report_text,
+                                        title=f"{report_type_label}：{topic}",
+                                    )
+                                    st.download_button(
+                                        label="⬇️ Word (.docx)",
+                                        data=docx_bytes,
+                                        file_name=f"report_{safe_name}.docx",
+                                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                        use_container_width=True,
+                                    )
+                                except Exception as ex:
+                                    st.warning(f"Word 导出失败: {ex}")
+                            else:
+                                st.info("安装 python-docx 后可导出 Word")
 
                         # 参考来源
                         if sources:
