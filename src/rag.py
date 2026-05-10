@@ -162,7 +162,10 @@ class RAG:
                 weights=[0.6, 0.4]
             )
 
-            compressor = FlashrankRerank(model=settings.RERANK_MODEL_NAME)
+            compressor = FlashrankRerank(
+                model=settings.RERANK_MODEL_NAME,
+                top_n=settings.RERANK_TOP_K,
+            )
             self.final_retriever = ContextualCompressionRetriever(
                 base_compressor=compressor,
                 base_retriever=ensemble_retriever
