@@ -4,25 +4,38 @@ import json
 import os
 import uuid
 
-st.set_page_config(page_title="华科制造智能售后客服", page_icon="🤖", layout="wide")
+st.set_page_config(page_title="AI 论文助理", page_icon="📚", layout="wide")
 
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
 DEFAULT_API_KEY = os.environ.get("API_KEY", "")
 REPORT_PATH = "test/evaluation_report.json"
 
-# --- 侧边栏 ---
+REPORT_TYPE_OPTIONS = {
+    "📄 文献摘要":  "summary",
+    "🔑 要点提炼":  "keypoints",
+    "📚 文献综述":  "review",
+    "⚖️ 对比分析":  "comparison",
+    "✏️ 自定义":   "custom",
+}
+
+# ==========================================
+# 侧边栏
+# ==========================================
 with st.sidebar:
-    st.title("🛠️ 管理后台")
-    menu = st.radio("选择功能", ["智能客服对话", "系统评估看板"])
+    st.title("📚 AI 论文助理")
+    menu = st.radio(
+        "选择功能",
+        ["💬 智能对话", "📊 报表生成", "🔬 系统评估"],
+    )
     st.divider()
 
     st.subheader("系统设置")
     api_key = st.text_input("API Key", value=DEFAULT_API_KEY, type="password")
 
     # --- PDF 上传 ---
-    st.subheader("📄 上传 PDF 文档")
+    st.subheader("📄 上传 PDF 文献")
     uploaded_file = st.file_uploader("选择 PDF 文件", type=["pdf"])
-    if uploaded_file and st.button("开始向量化上传", type="primary"):
+    if uploaded_file and st.button("解析并入库", type="primary"):
         with st.spinner("正在解析文档并构建索引..."):
             files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
             headers = {"x-api-key": api_key}
@@ -39,14 +52,14 @@ with st.sidebar:
     st.divider()
 
     # --- 网页抓取 ---
-    st.subheader("🌐 抓取网页内容")
+    st.subheader("🌐 抓取网页文献")
     url_input = st.text_area(
         "输入网页 URL（每行一个）",
-        placeholder="https://example.com/manual\nhttps://example.com/faq",
+        placeholder="https://arxiv.org/abs/xxxx\nhttps://example.com/paper",
         height=100,
     )
-    force_recrawl = st.checkbox("强制重新抓取（忽略去重）", value=False)
-    if st.button("开始抓取并入库"):
+    force_recrawl = st.checkbox("强制重新抓取", value=False)
+    if st.button("抓取并入库"):
         urls = [u.strip() for u in url_input.strip().splitlines() if u.strip()]
         if not urls:
             st.warning("请先输入至少一个 URL")
@@ -81,14 +94,15 @@ with st.sidebar:
                     st.error(f"连接 API 失败: {e}")
 
 
-# --- 页面 A：智能客服对话 ---
-if menu == "智能客服对话":
-    st.title("🤖 华科制造 AI 智能售后")
-    st.caption("基于 RAG 混合检索 · 实时参考技术手册回答问题")
+# ==========================================
+# 页面 A：智能对话
+# ==========================================
+if menu == "💬 智能对话":
+    st.title("💬 智能对话")
+    st.caption("基于知识库的多轮问答 · 支持上下文追问")
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
-    # session_id 在整个浏览器会话中保持不变，用于服务端多轮记忆
     if "session_id" not in st.session_state:
         st.session_state.session_id = str(uuid.uuid4())
 
@@ -96,18 +110,16 @@ if menu == "智能客服对话":
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             if msg["role"] == "assistant" and msg.get("sources"):
-                with st.expander("🔍 查看检索到的原文片段"):
+                with st.expander("🔍 查看参考原文"):
                     for src in msg["sources"]:
                         st.info(
                             f"📄 来源: {src.get('source', '未知')}\n\n"
                             f"{src.get('content_excerpt', '...')}"
                         )
 
-    # 清空对话按钮：同时清除前端消息历史和服务端会话记忆
     col_input, col_clear = st.columns([5, 1])
     with col_clear:
         if st.button("🗑️ 清空对话", use_container_width=True):
-            # 通知服务端释放该 session 的记忆
             try:
                 requests.delete(
                     f"{API_BASE_URL}/session/{st.session_state.session_id}",
@@ -115,18 +127,18 @@ if menu == "智能客服对话":
                     timeout=5,
                 )
             except Exception:
-                pass  # 网络异常不影响前端清空
+                pass
             st.session_state.messages = []
-            st.session_state.session_id = str(uuid.uuid4())  # 新会话 ID
+            st.session_state.session_id = str(uuid.uuid4())
             st.rerun()
 
-    if prompt := st.chat_input("请描述设备故障或查询参数..."):
+    if prompt := st.chat_input("输入问题，支持多轮追问..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("正在检索手册并生成回答..."):
+            with st.spinner("检索知识库中..."):
                 try:
                     headers = {"x-api-key": api_key}
                     resp = requests.post(
@@ -142,7 +154,7 @@ if menu == "智能客服对话":
                         intent = data.get("intent", "")
                         st.markdown(answer)
                         if intent:
-                            st.caption(f"意图识别：{intent}")
+                            st.caption(f"意图：{intent}")
                         st.session_state.messages.append({
                             "role": "assistant",
                             "content": answer,
@@ -156,9 +168,142 @@ if menu == "智能客服对话":
                     st.error(f"发生错误: {e}")
 
 
-# --- 页面 B：评估看板 ---
-elif menu == "系统评估看板":
-    st.title("📊 系统性能与准确率评估")
+# ==========================================
+# 页面 B：报表生成
+# ==========================================
+elif menu == "📊 报表生成":
+    st.title("📊 报表生成")
+    st.caption("从已上传的 PDF / 网页中，自动生成结构化学术报告 · 支持直接下载")
+
+    # --- 表单区 ---
+    with st.form("report_form"):
+        topic = st.text_input(
+            "报告主题",
+            placeholder="例：大语言模型在医学影像诊断中的应用",
+        )
+
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            report_type_label = st.selectbox(
+                "报告类型",
+                list(REPORT_TYPE_OPTIONS.keys()),
+            )
+        with col2:
+            max_sources = st.slider("最多引用文献片段数", 2, 20, 8)
+
+        report_type = REPORT_TYPE_OPTIONS[report_type_label]
+
+        custom_instruction = ""
+        if report_type == "custom":
+            custom_instruction = st.text_area(
+                "自定义指令",
+                placeholder="例：请重点分析该方法的局限性，并与传统方法做对比，用中文输出",
+                height=100,
+            )
+
+        submitted = st.form_submit_button("🚀 生成报告", type="primary", use_container_width=True)
+
+    # --- 生成 ---
+    if submitted:
+        if not topic.strip():
+            st.warning("请输入报告主题")
+        else:
+            with st.spinner(f"正在检索文献并生成{report_type_label}报告，可能需要 30-60 秒..."):
+                try:
+                    headers = {"x-api-key": api_key}
+                    resp = requests.post(
+                        f"{API_BASE_URL}/report",
+                        json={
+                            "topic": topic,
+                            "report_type": report_type,
+                            "custom_instruction": custom_instruction,
+                            "max_sources": max_sources,
+                        },
+                        headers=headers,
+                        timeout=300,
+                    )
+
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        report_text = data.get("report", "")
+                        sources = data.get("sources", [])
+
+                        # 展示报告
+                        st.divider()
+                        st.subheader(f"{report_type_label}：{topic}")
+                        st.markdown(report_text)
+
+                        # 下载按钮
+                        st.divider()
+                        col_dl1, col_dl2 = st.columns(2)
+                        with col_dl1:
+                            st.download_button(
+                                label="⬇️ 下载 Markdown (.md)",
+                                data=report_text.encode("utf-8"),
+                                file_name=f"report_{topic[:20]}.md",
+                                mime="text/markdown",
+                                use_container_width=True,
+                            )
+                        with col_dl2:
+                            st.download_button(
+                                label="⬇️ 下载纯文本 (.txt)",
+                                data=report_text.encode("utf-8"),
+                                file_name=f"report_{topic[:20]}.txt",
+                                mime="text/plain",
+                                use_container_width=True,
+                            )
+
+                        # 参考来源
+                        if sources:
+                            with st.expander(f"📚 参考来源（共 {len(sources)} 条）"):
+                                for i, src in enumerate(sources, 1):
+                                    st.markdown(
+                                        f"**{i}.** 📄 `{src.get('source', '未知')}`\n\n"
+                                        f"> {src.get('content_excerpt', '...')}"
+                                    )
+                    else:
+                        st.error(f"生成失败: {resp.json().get('detail', resp.text)}")
+
+                except Exception as e:
+                    st.error(f"连接 API 失败: {e}")
+
+    # 使用说明
+    else:
+        st.info(
+            "**使用流程：**\n"
+            "1. 在左侧侧边栏上传 PDF 文献或抓取相关网页\n"
+            "2. 在上方填写报告主题和类型\n"
+            "3. 点击「生成报告」，等待 AI 检索并撰写\n"
+            "4. 报告以 Markdown 格式展示，可直接下载"
+        )
+        st.markdown("""
+| 报告类型 | 适合场景 |
+|----------|----------|
+| 📄 文献摘要 | 快速了解一篇/多篇论文的核心内容 |
+| 🔑 要点提炼 | 整理论文中的关键论点和数据 |
+| 📚 文献综述 | 生成论文「相关工作」章节的草稿 |
+| ⚖️ 对比分析 | 横向比较多篇文献的方法和结论 |
+| ✏️ 自定义 | 按你的具体需求生成任意结构报告 |
+""")
+
+
+# ==========================================
+# 页面 C：系统评估
+# ==========================================
+elif menu == "🔬 系统评估":
+    st.title("🔬 系统性能评估")
+
+    # 健康状态
+    try:
+        health = requests.get(f"{API_BASE_URL}/health", timeout=5).json()
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("知识库文档块", health.get("doc_count", 0))
+        c2.metric("活跃会话数", health.get("active_sessions", 0))
+        c3.metric("LLM 提供商", health.get("llm_provider", "-"))
+        c4.metric("检索引擎", "✅ 就绪" if health.get("retriever_ready") else "⚠️ 未就绪")
+        st.divider()
+    except Exception:
+        st.warning("无法连接到 API 服务")
 
     if os.path.exists(REPORT_PATH):
         try:

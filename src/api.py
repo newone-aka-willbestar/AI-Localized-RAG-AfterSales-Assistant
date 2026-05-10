@@ -31,6 +31,7 @@ from src.badcase_store import BadcaseStore
 from src.memory import SessionMemory
 from src.graph import build_ask_graph, make_initial_state
 from src.rag import RAG
+from src.report_generator import ReportGenerator, REPORT_TYPES
 from src.vector_store import VectorStore
 from src.web_scraper import WebScraper, WebScraperError, get_url_store
 from src import audit_log
@@ -73,6 +74,10 @@ async def lifespan(app: FastAPI):
         session_memory=session_memory,
     )
 
+    # Step 5: 报表生成器（复用 rag 的检索器和 LLM）
+    global report_generator
+    report_generator = ReportGenerator(rag=rag)
+
     logger.info("服务启动完成")
     yield
     # 关闭阶段（如需清理资源在此处理）
@@ -103,6 +108,7 @@ _executor = ThreadPoolExecutor(max_workers=4)
 rag: RAG = None                              # type: ignore[assignment]
 intent_classifier: IntentClassifier = None   # type: ignore[assignment]
 ask_graph = None                             # LangGraph 编译图，lifespan 初始化后就绪
+report_generator: ReportGenerator = None     # type: ignore[assignment]
 badcase_store: BadcaseStore = BadcaseStore() # 启动即就绪，路径从默认值取
 session_memory: SessionMemory = SessionMemory()  # 多轮会话记忆，按 session_id 隔离
 
@@ -125,6 +131,13 @@ class FeedbackRequest(BaseModel):
     intent: str = ""
     sources: List[dict] = []
     note: str = ""            # 用户附加说明（可选）
+
+
+class ReportRequest(BaseModel):
+    topic: str                           # 报告主题（用于检索 + 标题）
+    report_type: str = "summary"         # summary / keypoints / review / comparison / custom
+    custom_instruction: str = ""         # 仅 report_type=custom 时有效
+    max_sources: int = 8                 # 最多使用的文献片段数（1-20）
 
 
 async def verify_api_key(x_api_key: str = Header(None)):
@@ -411,3 +424,55 @@ async def session_stats(api_key: str = Depends(verify_api_key)):
         "active_sessions": session_memory.session_count(),
         "evicted_this_call": evicted,
     }
+
+
+@app.post("/report")
+async def generate_report(request: ReportRequest, api_key: str = Depends(verify_api_key)):
+    """
+    报表生成接口。
+
+    根据知识库中的文献内容，按指定类型生成结构化 Markdown 报告。
+    面向论文写作场景，支持五种类型：
+      summary     文献摘要
+      keypoints   要点提炼
+      review      文献综述
+      comparison  对比分析
+      custom      自定义（需填 custom_instruction）
+
+    返回：
+      report:   Markdown 格式报告正文
+      sources:  参考来源列表
+      type:     报告类型标签
+      topic:    报告主题
+    """
+    if request.max_sources < 1 or request.max_sources > 20:
+        raise HTTPException(status_code=400, detail="max_sources 范围：1-20")
+
+    loop = asyncio.get_event_loop()
+
+    with audit_log.Timer() as timer:
+        result = await loop.run_in_executor(
+            _executor,
+            lambda: report_generator.generate(
+                topic=request.topic,
+                report_type=request.report_type,
+                custom_instruction=request.custom_instruction,
+                max_sources=request.max_sources,
+            ),
+        )
+
+    audit_log.record(
+        question=f"[报表] {request.topic}",
+        intent=f"report:{request.report_type}",
+        latency_ms=timer.elapsed_ms,
+        answer_length=len(result.get("report", "")),
+        source_count=len(result.get("sources", [])),
+    )
+
+    return result
+
+
+@app.get("/report/types")
+async def report_types():
+    """获取支持的报告类型列表（前端选择器用）"""
+    return {"types": [{"value": k, "label": v} for k, v in REPORT_TYPES.items()]}
