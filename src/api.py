@@ -29,6 +29,7 @@ from src.document_loader import DocumentLoader
 from src.intent_classifier import IntentClassifier
 from src.badcase_store import BadcaseStore
 from src.memory import SessionMemory
+from src.graph import build_ask_graph, make_initial_state
 from src.rag import RAG
 from src.vector_store import VectorStore
 from src.web_scraper import WebScraper, WebScraperError, get_url_store
@@ -52,7 +53,7 @@ async def lifespan(app: FastAPI):
     setup_tracing()
 
     # Step 2: 初始化全局资源
-    global rag, intent_classifier
+    global rag, intent_classifier, ask_graph
     rag = RAG()
 
     # Step 3: 意图分类器（复用 VectorStore 已加载的 Embedding 模型）
@@ -62,6 +63,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"意图分类器初始化失败，将退化为纯规则模式: {e}")
         intent_classifier = IntentClassifier(embeddings=None)
+
+    # Step 4: 编译 LangGraph 问答工作流
+    # 依赖注入：把 rag / intent_classifier / session_memory 传入图，不在图内持有全局状态
+    ask_graph = build_ask_graph(
+        rag=rag,
+        intent_classifier=intent_classifier,
+        session_memory=session_memory,
+    )
 
     logger.info("服务启动完成")
     yield
@@ -92,6 +101,7 @@ _executor = ThreadPoolExecutor(max_workers=4)
 # 全局实例（由 lifespan 初始化）
 rag: RAG = None                              # type: ignore[assignment]
 intent_classifier: IntentClassifier = None   # type: ignore[assignment]
+ask_graph = None                             # LangGraph 编译图，lifespan 初始化后就绪
 badcase_store: BadcaseStore = BadcaseStore() # 启动即就绪，路径从默认值取
 session_memory: SessionMemory = SessionMemory()  # 多轮会话记忆，按 session_id 隔离
 
@@ -314,50 +324,35 @@ async def list_badcases(limit: int = 50, api_key: str = Depends(verify_api_key))
 @app.post("/ask")
 async def ask(request: QuestionRequest, api_key: str = Depends(verify_api_key)):
     """
-    问答接口，内置意图路由 + 多轮会话记忆：
-    - chitchat  → 跳过 RAG，直接 LLM 回复（省检索开销）
-    - 其他意图  → 完整 RAG 流程（HyDE + 检索 + 精排 + 生成），携带历史上下文
+    问答接口，由 LangGraph StateGraph 驱动：
 
-    session_id 由前端生成并在会话期间保持一致，传入后系统自动注入历史对话。
-    不传 session_id 则单轮无状态模式（向后兼容）。
+    流程图（src/graph.py）：
+      classify → [chitchat | load_history → rag_ask] → save_memory
+
+    - chitchat  → 跳过 RAG，直接 LLM 回复
+    - 其他意图  → 完整 RAG 流程 + 历史上下文注入
+    - session_id 可选，传入时开启多轮记忆，不传则单轮无状态（向后兼容）
     """
     loop = asyncio.get_event_loop()
-    question = request.question
-    session_id = request.session_id
 
-    # 意图分类（同步，纯 CPU，不阻塞事件循环可忽略不计）
-    intent_result = await loop.run_in_executor(
-        _executor, intent_classifier.classify, question
-    )
-    logger.info(
-        f"意图分类: {intent_result.intent} "
-        f"(confidence={intent_result.confidence:.2f}, method={intent_result.method})"
+    # 构建初始状态，交给图执行
+    initial_state = make_initial_state(
+        question=request.question,
+        session_id=request.session_id,
     )
 
-    # 按意图路由
-    if intent_result.intent == "chitchat":
-        result = await loop.run_in_executor(_executor, rag.chitchat, question)
-    else:
-        # 从会话记忆中取历史对话文本（无 session_id 或首轮时为空字符串）
-        history = session_memory.get_history(session_id) if session_id else ""
-        result = await loop.run_in_executor(
-            _executor,
-            lambda: rag.ask(question, history=history),
-        )
+    # 图是同步执行的，放线程池避免阻塞事件循环
+    final_state = await loop.run_in_executor(
+        _executor,
+        lambda: ask_graph.invoke(initial_state),
+    )
 
-    # 在返回结果中附带意图信息，供前端/LangSmith 分析
-    result["intent"] = intent_result.intent
-
-    # 记录本轮问答到会话记忆（chitchat 也记录，保持对话连贯）
-    if session_id:
-        session_memory.add_turn(
-            session_id=session_id,
-            question=question,
-            answer=result.get("answer", ""),
-            intent=intent_result.intent,
-        )
-
-    return result
+    return {
+        "answer":   final_state["answer"],
+        "sources":  final_state["sources"],
+        "provider": final_state["provider"],
+        "intent":   final_state["intent"],
+    }
 
 
 @app.delete("/session/{session_id}")
