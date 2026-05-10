@@ -68,6 +68,14 @@ class Settings(BaseSettings):
     VECTORSTORE_PATH: str = "./rag_cache"
 
     # ==========================================
+    # HyDE 检索增强
+    # ==========================================
+    # HyDE (Hypothetical Document Embeddings)：用 LLM 先生成"假设答案"再检索
+    # 原理：问题与文档的 embedding 分布不同，用假设文档检索比用原问题更准
+    # 代价：每次问答多一次 LLM 调用（约 1-3 秒）
+    HYDE_ENABLED: bool = True
+
+    # ==========================================
     # 翻译配置（第二阶段使用）
     # ==========================================
     TRANSLATION_PROVIDER: Literal["ollama", "deepseek", "none"] = "ollama"

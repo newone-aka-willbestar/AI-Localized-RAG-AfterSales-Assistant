@@ -101,6 +101,16 @@ class RAG:
         self.all_documents: List = []
         self.cache_path = os.path.join(settings.VECTORSTORE_PATH, "docs_cache.pkl")
 
+        # HyDE：注入当前 LLM，检索前将问题变换为假设文档
+        # 通过 HYDE_ENABLED=false 可以关闭，方便 A/B 对比效果
+        if settings.HYDE_ENABLED:
+            from src.hyde import HyDE
+            self.hyde: Optional[HyDE] = HyDE(self.llm)
+            logger.info("HyDE 检索增强已启用")
+        else:
+            self.hyde = None
+            logger.info("HyDE 检索增强已关闭")
+
         if documents:
             self.init_retriever(documents)
         else:
@@ -187,7 +197,14 @@ class RAG:
             }
 
         try:
-            retrieved_docs = self.final_retriever.invoke(question)
+            # HyDE 变换：将短句问题扩展为假设文档，提升向量检索召回率
+            # hyde.generate() 内置降级保护，失败时自动返回原始问题
+            retrieval_query = (
+                self.hyde.generate(question)
+                if self.hyde is not None
+                else question
+            )
+            retrieved_docs = self.final_retriever.invoke(retrieval_query)
 
             if not retrieved_docs:
                 return {

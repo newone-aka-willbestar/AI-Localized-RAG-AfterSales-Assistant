@@ -1,55 +1,80 @@
+"""
+HyDE (Hypothetical Document Embeddings) 检索增强模块。
+
+原理：
+  用户提问（短句）与知识库文档（长段落）的 embedding 分布差异很大，
+  直接用问题做向量检索召回率偏低。
+  HyDE 先让 LLM 生成一段"风格接近真实手册"的假设文档，
+  再用这段文本做向量检索——embedding 空间更接近，召回率更高。
+
+示例：
+  输入:  "设备不启动怎么办？"
+  输出:  "[故障现象] 设备上电后无任何响应。
+          [可能原因] 电源熔断器熔断、主控板故障或急停开关未复位。
+          [检查步骤] 1. 检查熔断器..."
+  效果:  输出的 embedding 与手册中的故障描述章节高度相似
+
+代价：每次问答多一次 LLM 调用（约 1-3 秒），可通过 HYDE_ENABLED=false 关闭。
+"""
 import logging
-from langchain_ollama import ChatOllama
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from src.config import settings
 
 logger = logging.getLogger(__name__)
 
+# 针对工业售后场景定制的 Prompt
+# 要求生成结果必须符合技术手册格式，这样 embedding 才能与手册内容对齐
+_PROMPT_TEMPLATE = """\
+你是一个专业的工业设备维修专家。
+请针对用户的问题，写一段简短的、技术手册风格的标准回答。
+
+要求：
+1. 包含可能的故障原因
+2. 包含标准的检查或修复步骤
+3. 语言专业、客观，使用"[故障现象]"、"[可能原因]"、"[检查步骤]"等标准字段格式
+4. 不要有"你好"、"建议"等客套话
+
+用户问题：{question}
+
+请输出标准手册段落："""
+
+
 class HyDE:
     """
-    HyDE (Hypothetical Document Embeddings) 
-    作用：将用户简单的提问“翻译”成一段模拟的技术手册段落，提高检索召回率。
+    假设文档生成器。
+
+    设计要点：
+    - 接受 LLM 对象注入（由 RAG 传入），避免与 rag.py 循环导入
+    - generate() 内置降级保护：LLM 调用失败时返回原始问题，不中断主流程
+    - 所有 langchain 依赖懒加载，避免模块顶层 import 的 pydantic_v1 兼容问题
     """
-    def __init__(self):
-        self.llm = ChatOllama(
-            model=settings.OLLAMA_MODEL,
-            base_url=settings.OLLAMA_BASE_URL,
-            temperature=0.3  # 稍微给一点创造力，但不要太高
-        )
-        
-        # 优化点：针对你的“工业售后”场景定制 Prompt
-        # 面试时说：我专门调整了 Prompt，让 AI 模仿技术手册的口吻生成假答案
-        self.prompt = ChatPromptTemplate.from_template("""
-        你是一个专业的工业设备维修专家。请针对以下用户咨询的问题，写一段简短的、类似于技术维修手册中的标准回答。
-        要求：
-        1. 包含可能的故障原因。
-        2. 包含标准的检查或修复步骤。
-        3. 语言专业、客观，不要有“你好”、“建议”等客套话。
-        
-        用户问题：{question}
-        
-        模拟手册段落示例：
-        [故障现象] 设备运行中出现异响。
-        [可能原因] 轴承磨损、异物进入或润滑不足。
-        [检查步骤] 1. 停机断电；2. 检查轴承间隙；3. 清理腔体并添加润滑油。
-        
-        请开始生成：
-        """)
+
+    def __init__(self, llm):
+        """
+        Args:
+            llm: 已经初始化的 LangChain LLM 对象（由 RAG.__init__ 传入）
+        """
+        self.llm = llm
 
     def generate(self, question: str) -> str:
         """
-        生成假设文档。如果生成失败，降级返回原问题。
+        将用户问题变换为假设文档。
+
+        Returns:
+            str: 假设文档文本（成功时）或原始问题（失败时降级）
         """
+        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_core.output_parsers import StrOutputParser
+
         try:
-            logger.info(f"🚀 正在为问题执行 HyDE 变换: {question}")
-            
-            chain = self.prompt | self.llm | StrOutputParser()
+            prompt = ChatPromptTemplate.from_template(_PROMPT_TEMPLATE)
+            chain = prompt | self.llm | StrOutputParser()
             hypothetical_doc = chain.invoke({"question": question})
-            
-            # 去除可能的多余空格
-            return hypothetical_doc.strip()
-            
+            result = hypothetical_doc.strip()
+            logger.info(
+                f"HyDE 变换完成，原问题长度={len(question)}，"
+                f"假设文档长度={len(result)}"
+            )
+            return result
+
         except Exception as e:
-            logger.error(f"❌ HyDE 生成失败: {e}，将使用原提问进行检索。")
+            logger.warning(f"HyDE 生成失败（将使用原问题检索）: {e}")
             return question
