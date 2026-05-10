@@ -327,9 +327,10 @@ elif menu == "🔬 系统评估":
         c2.metric("活跃会话数", health.get("active_sessions", 0))
         c3.metric("LLM 提供商", health.get("llm_provider", "-"))
         c4.metric("检索引擎", "✅ 就绪" if health.get("retriever_ready") else "⚠️ 未就绪")
-        st.divider()
     except Exception:
         st.warning("无法连接到 API 服务")
+
+    st.divider()
 
     if os.path.exists(REPORT_PATH):
         try:
@@ -337,23 +338,99 @@ elif menu == "🔬 系统评估":
                 report = json.load(f)
 
             summary = report.get("summary", {})
-            c1, c2, c3 = st.columns(3)
-            c1.metric("端到端准确率", summary.get("accuracy", "N/A"))
-            c2.metric("平均响应耗时", f"{summary.get('avg_latency_sec', 0)}s")
-            c3.metric("测试用例总数", summary.get("total_questions", 0))
 
+            # ── 核心指标 ──────────────────────────────────
+            st.subheader("📊 核心指标")
+            col1, col2, col3, col4 = st.columns(4)
+            acc = summary.get("accuracy", 0)
+            col1.metric(
+                "准确率",
+                f"{acc * 100:.1f}%" if isinstance(acc, float) else acc,
+                help=f"语义相似度 ≥ {summary.get('correct_threshold', 0.75)} 视为正确",
+            )
+            col2.metric(
+                "平均语义相似度",
+                f"{summary.get('avg_semantic', 0):.3f}",
+                help="回答与标准答案的 Embedding 余弦相似度均值（0~1）",
+            )
+            col3.metric(
+                "LLM 裁判分",
+                f"{summary['avg_llm_judge']:.3f}" if summary.get("avg_llm_judge") is not None else "N/A",
+                help="LLM 打 0~3 分后归一化到 0~1，-1 表示未启用",
+            )
+            col4.metric(
+                "忠实度",
+                f"{summary['avg_faithfulness']:.3f}" if summary.get("avg_faithfulness") is not None else "N/A",
+                help="回答中有据可查的声明占比（1=无幻觉）",
+            )
+
+            col5, col6, col7, col8 = st.columns(4)
+            col5.metric("测试用例数", summary.get("total", summary.get("total_questions", 0)))
+            col6.metric("P50 耗时", f"{summary.get('p50_latency_ms', summary.get('avg_latency_sec', 0))}ms")
+            col7.metric("P90 耗时", f"{summary.get('p90_latency_ms', '-')}ms")
+            col8.metric("P99 耗时", f"{summary.get('p99_latency_ms', '-')}ms")
+
+            # ── 分类得分 ──────────────────────────────────
+            if summary.get("category_scores"):
+                st.divider()
+                st.subheader("📂 各类别语义得分")
+                cat_data = summary["category_scores"]
+                cols = st.columns(min(len(cat_data), 4))
+                for i, (cat, score) in enumerate(cat_data.items()):
+                    cols[i % 4].metric(cat, f"{score:.3f}")
+
+            # ── 详细评测流水 ───────────────────────────────
             st.divider()
-            st.subheader("详细评测流水")
-            for item in report.get("details", []):
-                status = "✅ 通过" if item["is_correct"] else "❌ 失败"
-                with st.expander(f"{status} | {item['question']}"):
-                    st.write(f"**AI 回答:** {item['answer']}")
-                    st.write(f"**耗时:** {item['latency']}s")
-                    if item.get("sources"):
-                        st.json(item["sources"])
+            st.subheader("🔍 详细评测流水")
+
+            details = report.get("details", [])
+            # 排序：失败的排前面
+            details_sorted = sorted(details, key=lambda x: x.get("semantic_score", 0))
+
+            for item in details_sorted:
+                sem   = item.get("semantic_score", 0)
+                ok    = item.get("is_correct", False)
+                judge = item.get("llm_judge_score", -1)
+                faith = item.get("faithfulness")
+                label = "✅" if ok else "❌"
+
+                score_str = f"语义:{sem:.2f}"
+                if judge >= 0:
+                    score_str += f" | LLM:{judge}/3"
+                if faith is not None:
+                    score_str += f" | 忠实:{faith:.2f}"
+
+                with st.expander(f"{label} {score_str} | {item['question'][:60]}"):
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        st.markdown("**📋 标准答案**")
+                        st.info(item.get("ground_truth", "无"))
+                    with col_b:
+                        st.markdown("**🤖 AI 回答**")
+                        st.success(item.get("answer", "")[:400])
+                    if item.get("llm_judge_reason"):
+                        st.caption(f"💬 LLM 裁判说明：{item['llm_judge_reason']}")
+                    st.caption(f"⏱️ 耗时：{item.get('latency_ms', item.get('latency', 0))}ms | 来源：{item.get('sources_count', 0)} 条")
+
+            # 报告下载
+            st.divider()
+            st.download_button(
+                "⬇️ 下载完整评估报告 (JSON)",
+                data=json.dumps(report, ensure_ascii=False, indent=2).encode("utf-8"),
+                file_name="evaluation_report.json",
+                mime="application/json",
+            )
+
         except Exception as e:
             st.error(f"读取报告出错: {e}")
     else:
         st.warning("⚠️ 暂无评估报告")
-        st.info("运行以下命令生成报告：")
-        st.code("python evaluate.py --key your-secret-key-2026")
+
+    st.divider()
+    st.subheader("▶️ 运行评估")
+    st.info("在终端运行以下命令（需要服务已启动）：")
+    col_cmd1, col_cmd2 = st.columns(2)
+    with col_cmd1:
+        st.code("# 完整评估（含 LLM 裁判）\npython evaluate.py --key your-secret-key-2026")
+    with col_cmd2:
+        st.code("# 快速评估（仅语义相似度）\npython evaluate.py --key your-secret-key-2026 --no-llm-judge")
