@@ -183,6 +183,26 @@ class RAG:
             logger.error(f"检索器构建失败: {e}")
             raise
 
+    def chitchat(self, question: str) -> Dict[str, Any]:
+        """
+        闲聊路径：跳过 RAG，直接用 LLM 回复。
+        意图分类为 chitchat 时调用，不消耗检索资源。
+        """
+        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_core.output_parsers import StrOutputParser
+
+        prompt = ChatPromptTemplate.from_template(
+            "你是华科制造的 AI 售后助手。请友好地回复用户的问候或闲聊，"
+            "并适时引导他们提出设备相关问题。\n\n用户: {input}"
+        )
+        chain = prompt | self.llm | StrOutputParser()
+        try:
+            answer = chain.invoke({"input": question})
+        except Exception as e:
+            logger.warning(f"闲聊回复失败: {e}")
+            answer = "您好！有什么设备相关的问题需要我帮助吗？"
+        return {"answer": answer, "sources": [], "provider": settings.LLM_PROVIDER}
+
     def ask(self, question: str) -> Dict[str, Any]:
         """
         核心问答入口。

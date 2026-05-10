@@ -118,11 +118,16 @@ if menu == "智能客服对话":
                         data = resp.json()
                         answer = data.get("answer", "未能生成答案")
                         sources = data.get("sources", [])
+                        intent = data.get("intent", "")
                         st.markdown(answer)
+                        if intent:
+                            st.caption(f"意图识别：{intent}")
                         st.session_state.messages.append({
                             "role": "assistant",
                             "content": answer,
                             "sources": sources,
+                            "intent": intent,
+                            "question": prompt,
                         })
                     else:
                         st.error(f"API 响应异常: {resp.status_code}")

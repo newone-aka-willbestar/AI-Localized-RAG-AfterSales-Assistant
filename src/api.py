@@ -25,6 +25,8 @@ from pydantic import BaseModel
 from src.config import settings
 from src.tracing import setup_tracing
 from src.document_loader import DocumentLoader
+from src.intent_classifier import IntentClassifier
+from src.badcase_store import BadcaseStore
 from src.rag import RAG
 from src.vector_store import VectorStore
 from src.web_scraper import WebScraper, WebScraperError, get_url_store
@@ -48,8 +50,16 @@ async def lifespan(app: FastAPI):
     setup_tracing()
 
     # Step 2: 初始化全局资源
-    global rag
+    global rag, intent_classifier
     rag = RAG()
+
+    # Step 3: 意图分类器（复用 VectorStore 已加载的 Embedding 模型）
+    try:
+        embeddings = rag.vector_store.embeddings
+        intent_classifier = IntentClassifier(embeddings=embeddings)
+    except Exception as e:
+        logger.warning(f"意图分类器初始化失败，将退化为纯规则模式: {e}")
+        intent_classifier = IntentClassifier(embeddings=None)
 
     logger.info("服务启动完成")
     yield
@@ -77,8 +87,10 @@ app.add_middleware(
 # max_workers=4 表示最多同时处理 4 个问答请求
 _executor = ThreadPoolExecutor(max_workers=4)
 
-# 全局 RAG 实例（由 lifespan 初始化，此处声明类型供静态分析）
-rag: RAG = None  # type: ignore[assignment]
+# 全局实例（由 lifespan 初始化）
+rag: RAG = None                              # type: ignore[assignment]
+intent_classifier: IntentClassifier = None   # type: ignore[assignment]
+badcase_store: BadcaseStore = BadcaseStore() # 启动即就绪，路径从默认值取
 
 
 class QuestionRequest(BaseModel):
@@ -89,6 +101,15 @@ class CrawlRequest(BaseModel):
     urls: List[str]
     force: bool = False       # True：忽略去重，强制重新抓取
     translate: bool = True    # True：非中文内容自动翻译（需 TRANSLATION_ENABLED=true）
+
+
+class FeedbackRequest(BaseModel):
+    question: str
+    answer: str
+    feedback: str             # "bad" 或 "good"
+    intent: str = ""
+    sources: List[dict] = []
+    note: str = ""            # 用户附加说明（可选）
 
 
 async def verify_api_key(x_api_key: str = Header(None)):
@@ -252,14 +273,65 @@ async def crawl_history(api_key: str = Depends(verify_api_key)):
     }
 
 
+@app.post("/feedback")
+async def feedback(request: FeedbackRequest, api_key: str = Depends(verify_api_key)):
+    """
+    用户反馈接口（点赞/点踩）。
+
+    bad 反馈会写入 SQLite，供后续分析和模型改进。
+    good 反馈同样记录，用于统计满意率。
+    """
+    if request.feedback not in ("bad", "good"):
+        raise HTTPException(status_code=400, detail="feedback 只接受 'bad' 或 'good'")
+
+    record_id = badcase_store.record(
+        question=request.question,
+        answer=request.answer,
+        feedback=request.feedback,
+        intent=request.intent,
+        sources=request.sources,
+        note=request.note,
+    )
+    return {"id": record_id, "recorded": True}
+
+
+@app.get("/feedback/stats")
+async def feedback_stats(api_key: str = Depends(verify_api_key)):
+    """查看反馈统计：总数、点赞数、点踩数"""
+    return badcase_store.stats()
+
+
+@app.get("/feedback/badcases")
+async def list_badcases(limit: int = 50, api_key: str = Depends(verify_api_key)):
+    """查看最近的 bad 反馈列表，用于分析改进"""
+    return {"items": badcase_store.list_bad(limit=limit)}
+
+
 @app.post("/ask")
 async def ask(request: QuestionRequest, api_key: str = Depends(verify_api_key)):
     """
-    问答接口。
-
-    rag.ask() 是同步函数（调大模型），用 run_in_executor 放进线程池，
-    这样 FastAPI 在等待回答期间仍然可以处理其他请求。
+    问答接口，内置意图路由：
+    - chitchat  → 跳过 RAG，直接 LLM 回复（省检索开销）
+    - 其他意图  → 完整 RAG 流程（HyDE + 检索 + 精排 + 生成）
     """
     loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(_executor, rag.ask, request.question)
+    question = request.question
+
+    # 意图分类（同步，纯 CPU，不阻塞事件循环可忽略不计）
+    intent_result = await loop.run_in_executor(
+        _executor, intent_classifier.classify, question
+    )
+    logger.info(
+        f"意图分类: {intent_result.intent} "
+        f"(confidence={intent_result.confidence:.2f}, method={intent_result.method})"
+    )
+
+    # 按意图路由
+    if intent_result.intent == "chitchat":
+        result = await loop.run_in_executor(_executor, rag.chitchat, question)
+    else:
+        result = await loop.run_in_executor(_executor, rag.ask, question)
+
+    # 在返回结果中附带意图信息，供前端/LangSmith 分析
+    result["intent"] = intent_result.intent
     return result
