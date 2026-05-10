@@ -155,16 +155,35 @@ class Translator:
         translated_chunks = []
 
         for i, chunk in enumerate(chunks):
+            result = None
             try:
                 result = chain.invoke(
                     {"text": chunk},
                     config={"run_name": f"Translator.chunk_{i+1}_of_{len(chunks)}"},
                 )
+            except TypeError as e:
+                if "unexpected keyword argument 'config'" in str(e):
+                    try:
+                        result = chain.invoke({"text": chunk})
+                    except Exception as inner_e:
+                        logger.warning(
+                            f"翻译块 {i+1}/{len(chunks)} 失败，保留原文: {inner_e}"
+                        )
+                        translated_chunks.append(chunk)
+                        continue
+                else:
+                    raise
+            except Exception as e:
+                logger.warning(f"翻译块 {i+1}/{len(chunks)} 失败，保留原文: {e}")
+                translated_chunks.append(chunk)
+                continue
+
+            try:
                 translated_chunks.append(result.strip())
                 logger.debug(f"翻译块 {i+1}/{len(chunks)} 完成")
             except Exception as e:
                 logger.warning(f"翻译块 {i+1}/{len(chunks)} 失败，保留原文: {e}")
-                translated_chunks.append(chunk)  # 保留原文块，不中断
+                translated_chunks.append(chunk)
 
         return "\n\n".join(translated_chunks)
 

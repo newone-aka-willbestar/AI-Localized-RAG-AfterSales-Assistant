@@ -27,6 +27,7 @@ from src.config import settings
 from src.url_store import URLStore
 
 logger = logging.getLogger(__name__)
+Translator = None
 
 # 模块级全局 URLStore，API 进程共用同一个实例（单例）
 _url_store: Optional[URLStore] = None
@@ -204,8 +205,12 @@ class WebScraper:
 
         if translate and settings.TRANSLATION_ENABLED and lang != "zh":
             try:
-                from src.translator import Translator
-                translator = Translator()
+                global Translator
+                translator_cls = Translator
+                if translator_cls is None:
+                    from src.translator import Translator as translator_cls
+                    Translator = translator_cls
+                translator = translator_cls()
                 text = translator.translate(text)
                 translated = True
                 logger.info(f"已翻译（{lang} → zh）")

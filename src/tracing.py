@@ -34,6 +34,8 @@ LangSmith 的工作原理：
 import logging
 import os
 
+from src.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -48,8 +50,6 @@ def setup_tracing() -> bool:
         True  = 追踪已启用
         False = 追踪未启用（LANGCHAIN_TRACING_V2=false 或 API Key 为空）
     """
-    from src.config import settings
-
     if not settings.LANGCHAIN_TRACING_V2:
         logger.info("LangSmith 追踪未启用（LANGCHAIN_TRACING_V2=false）")
         return False
@@ -99,7 +99,6 @@ def get_run_config(
     Returns:
         可直接传给 chain.invoke(config=...) 的字典
     """
-    from src.config import settings
 
     config: dict = {"run_name": run_name}
 

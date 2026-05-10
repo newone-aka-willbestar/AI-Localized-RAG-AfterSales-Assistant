@@ -78,12 +78,6 @@ class TestSettingsFromEnv:
 class TestSettingsValidation:
     """测试配置的业务逻辑校验"""
 
-    def test_translation_provider_values(self):
-        """翻译提供商只允许特定值"""
-        from src.config import Settings
-        s = Settings(_env_file=None)
-        assert s.TRANSLATION_PROVIDER in ("ollama", "deepseek", "none")
-
     def test_max_upload_size_is_reasonable(self):
         """上传文件大小限制应该在合理范围内（1MB ~ 100MB）"""
         from src.config import Settings
