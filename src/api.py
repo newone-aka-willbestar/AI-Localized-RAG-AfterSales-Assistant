@@ -7,6 +7,7 @@ FastAPI 后端入口。
 2. 全局 rag 实例维护 all_documents 列表，保证多次上传后 BM25 不会丢失旧文档
 3. CORS 只开放必要来源，不用 allow_origins=["*"]
 4. LangSmith 追踪在 lifespan 最先初始化，确保在任何 LLM 调用前设好环境变量
+5. SessionMemory 以 session_id 为 key 保存多轮对话历史，解决指代消歧问题
 """
 import asyncio
 import gc
@@ -16,7 +17,7 @@ import tempfile
 from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 
-from typing import List
+from typing import List, Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,6 +28,7 @@ from src.tracing import setup_tracing
 from src.document_loader import DocumentLoader
 from src.intent_classifier import IntentClassifier
 from src.badcase_store import BadcaseStore
+from src.memory import SessionMemory
 from src.rag import RAG
 from src.vector_store import VectorStore
 from src.web_scraper import WebScraper, WebScraperError, get_url_store
@@ -91,10 +93,12 @@ _executor = ThreadPoolExecutor(max_workers=4)
 rag: RAG = None                              # type: ignore[assignment]
 intent_classifier: IntentClassifier = None   # type: ignore[assignment]
 badcase_store: BadcaseStore = BadcaseStore() # 启动即就绪，路径从默认值取
+session_memory: SessionMemory = SessionMemory()  # 多轮会话记忆，按 session_id 隔离
 
 
 class QuestionRequest(BaseModel):
     question: str
+    session_id: Optional[str] = None  # 前端生成的会话 ID，用于多轮记忆
 
 
 class CrawlRequest(BaseModel):
@@ -310,12 +314,16 @@ async def list_badcases(limit: int = 50, api_key: str = Depends(verify_api_key))
 @app.post("/ask")
 async def ask(request: QuestionRequest, api_key: str = Depends(verify_api_key)):
     """
-    问答接口，内置意图路由：
+    问答接口，内置意图路由 + 多轮会话记忆：
     - chitchat  → 跳过 RAG，直接 LLM 回复（省检索开销）
-    - 其他意图  → 完整 RAG 流程（HyDE + 检索 + 精排 + 生成）
+    - 其他意图  → 完整 RAG 流程（HyDE + 检索 + 精排 + 生成），携带历史上下文
+
+    session_id 由前端生成并在会话期间保持一致，传入后系统自动注入历史对话。
+    不传 session_id 则单轮无状态模式（向后兼容）。
     """
     loop = asyncio.get_event_loop()
     question = request.question
+    session_id = request.session_id
 
     # 意图分类（同步，纯 CPU，不阻塞事件循环可忽略不计）
     intent_result = await loop.run_in_executor(
@@ -330,8 +338,43 @@ async def ask(request: QuestionRequest, api_key: str = Depends(verify_api_key)):
     if intent_result.intent == "chitchat":
         result = await loop.run_in_executor(_executor, rag.chitchat, question)
     else:
-        result = await loop.run_in_executor(_executor, rag.ask, question)
+        # 从会话记忆中取历史对话文本（无 session_id 或首轮时为空字符串）
+        history = session_memory.get_history(session_id) if session_id else ""
+        result = await loop.run_in_executor(
+            _executor,
+            lambda: rag.ask(question, history=history),
+        )
 
     # 在返回结果中附带意图信息，供前端/LangSmith 分析
     result["intent"] = intent_result.intent
+
+    # 记录本轮问答到会话记忆（chitchat 也记录，保持对话连贯）
+    if session_id:
+        session_memory.add_turn(
+            session_id=session_id,
+            question=question,
+            answer=result.get("answer", ""),
+            intent=intent_result.intent,
+        )
+
     return result
+
+
+@app.delete("/session/{session_id}")
+async def clear_session(session_id: str, api_key: str = Depends(verify_api_key)):
+    """
+    清除指定会话的对话历史。
+    用户点击"清空对话"或开始新会话时调用，释放服务端内存。
+    """
+    session_memory.clear(session_id)
+    return {"cleared": True, "session_id": session_id}
+
+
+@app.get("/session/stats")
+async def session_stats(api_key: str = Depends(verify_api_key)):
+    """查看当前活跃会话数（运维用）"""
+    evicted = session_memory.evict_expired()
+    return {
+        "active_sessions": session_memory.session_count(),
+        "evicted_this_call": evicted,
+    }

@@ -203,9 +203,14 @@ class RAG:
             answer = "您好！有什么设备相关的问题需要我帮助吗？"
         return {"answer": answer, "sources": [], "provider": settings.LLM_PROVIDER}
 
-    def ask(self, question: str) -> Dict[str, Any]:
+    def ask(self, question: str, history: str = "") -> Dict[str, Any]:
         """
         核心问答入口。
+
+        Args:
+            question: 用户当前轮次的问题
+            history:  由 SessionMemory.get_history() 提供的历史对话文本。
+                      非空时注入 prompt，让 LLM 能理解指代（"这个"、"刚才说的那个"）。
         返回格式: {"answer": str, "sources": list, "provider": str}
         """
         from langchain_core.prompts import ChatPromptTemplate
@@ -242,10 +247,13 @@ class RAG:
 
             context = "\n\n".join([d.page_content for d in retrieved_docs])
 
+            # 会话历史区块：有历史时插入，让 LLM 能理解指代词和上下文
+            history_section = f"\n{history}\n" if history else ""
+
             prompt = ChatPromptTemplate.from_template(
                 """你是一个专业的工业售后专家。请仅根据[参考信息]回答问题。
 如果参考信息中没有相关内容，请直接说"知识库中暂无此信息"，禁止猜测。
-
+{history}
 [参考信息]
 {context}
 
@@ -254,7 +262,11 @@ class RAG:
             )
 
             chain = (
-                {"context": lambda x: context, "input": RunnablePassthrough()}
+                {
+                    "context": lambda x: context,
+                    "history": lambda x: history_section,
+                    "input": RunnablePassthrough(),
+                }
                 | prompt
                 | self.llm
                 | StrOutputParser()
@@ -268,6 +280,7 @@ class RAG:
                         "question": question,
                         "doc_count": len(retrieved_docs),
                         "hyde_used": self.hyde is not None,
+                        "has_history": bool(history),
                     },
                 ),
             )

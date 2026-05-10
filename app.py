@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import json
 import os
+import uuid
 
 st.set_page_config(page_title="华科制造智能售后客服", page_icon="🤖", layout="wide")
 
@@ -87,6 +88,9 @@ if menu == "智能客服对话":
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    # session_id 在整个浏览器会话中保持不变，用于服务端多轮记忆
+    if "session_id" not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())
 
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
@@ -99,6 +103,23 @@ if menu == "智能客服对话":
                             f"{src.get('content_excerpt', '...')}"
                         )
 
+    # 清空对话按钮：同时清除前端消息历史和服务端会话记忆
+    col_input, col_clear = st.columns([5, 1])
+    with col_clear:
+        if st.button("🗑️ 清空对话", use_container_width=True):
+            # 通知服务端释放该 session 的记忆
+            try:
+                requests.delete(
+                    f"{API_BASE_URL}/session/{st.session_state.session_id}",
+                    headers={"x-api-key": api_key},
+                    timeout=5,
+                )
+            except Exception:
+                pass  # 网络异常不影响前端清空
+            st.session_state.messages = []
+            st.session_state.session_id = str(uuid.uuid4())  # 新会话 ID
+            st.rerun()
+
     if prompt := st.chat_input("请描述设备故障或查询参数..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
@@ -110,7 +131,7 @@ if menu == "智能客服对话":
                     headers = {"x-api-key": api_key}
                     resp = requests.post(
                         f"{API_BASE_URL}/ask",
-                        json={"question": prompt},
+                        json={"question": prompt, "session_id": st.session_state.session_id},
                         headers=headers,
                         timeout=180,
                     )
