@@ -33,6 +33,7 @@ from src.graph import build_ask_graph, make_initial_state
 from src.rag import RAG
 from src.vector_store import VectorStore
 from src.web_scraper import WebScraper, WebScraperError, get_url_store
+from src import audit_log
 
 logging.basicConfig(level=settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
@@ -136,12 +137,29 @@ async def verify_api_key(x_api_key: str = Header(None)):
 async def health():
     """
     健康检查接口。
-    用途：Docker/Railway 检测服务是否就绪，面试时也能展示工程意识。
+
+    返回字段：
+    - status:            "ok" 表示服务就绪
+    - llm_provider:      当前使用的 LLM 提供商
+    - retriever_ready:   检索引擎是否初始化完毕（上传文档后才为 true）
+    - doc_count:         知识库当前文档块数量
+    - active_sessions:   当前活跃的多轮会话数
+    - graph_ready:       LangGraph 工作流是否就绪
+    - hyde_enabled:      HyDE 检索增强是否开启
+    - feedback_stats:    累计反馈统计（总数 / 好评 / 差评）
     """
+    # 顺带清理过期会话，保证 active_sessions 数字准确
+    session_memory.evict_expired()
+
     return {
-        "status": "ok",
-        "llm_provider": settings.LLM_PROVIDER,
-        "retriever_ready": rag.final_retriever is not None,
+        "status":           "ok",
+        "llm_provider":     settings.LLM_PROVIDER,
+        "retriever_ready":  rag is not None and rag.final_retriever is not None,
+        "doc_count":        len(rag.all_documents) if rag else 0,
+        "active_sessions":  session_memory.session_count(),
+        "graph_ready":      ask_graph is not None,
+        "hyde_enabled":     settings.HYDE_ENABLED,
+        "feedback_stats":   badcase_store.stats(),
     }
 
 
@@ -341,10 +359,30 @@ async def ask(request: QuestionRequest, api_key: str = Depends(verify_api_key)):
         session_id=request.session_id,
     )
 
-    # 图是同步执行的，放线程池避免阻塞事件循环
-    final_state = await loop.run_in_executor(
-        _executor,
-        lambda: ask_graph.invoke(initial_state),
+    # 计时 + 执行图（同步，放线程池避免阻塞事件循环）
+    error_msg: Optional[str] = None
+    with audit_log.Timer() as timer:
+        try:
+            final_state = await loop.run_in_executor(
+                _executor,
+                lambda: ask_graph.invoke(initial_state),
+            )
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"/ask 执行异常: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="服务繁忙，请稍后再试")
+
+    # 审计日志：fire-and-forget，失败不影响响应
+    audit_log.record(
+        question=request.question,
+        intent=final_state["intent"],
+        latency_ms=timer.elapsed_ms,
+        answer_length=len(final_state["answer"]),
+        source_count=len(final_state["sources"]),
+        session_id=request.session_id,
+        error=error_msg,
+        provider=final_state["provider"],
+        has_history=bool(final_state.get("history")),
     )
 
     return {

@@ -2,7 +2,7 @@
 RAG 核心引擎。
 
 设计原则：
-1. LLM 提供商通过 get_llm() 工厂函数抽象，不耦合具体实现
+1. LLM 通过 get_llm_with_fallback() 获取，内置重试（指数退避）和降级（DeepSeek→Ollama）
 2. 所有重型依赖（langchain、向量库）采用懒加载，不在模块顶层 import
 3. sanitize_metadata 是纯函数，零依赖，随时可测试
 """
@@ -12,48 +12,9 @@ import pickle
 from typing import Dict, Any, List, Optional
 
 from src.config import settings
+from src.llm_factory import get_llm_with_fallback
 
 logger = logging.getLogger(__name__)
-
-
-def get_llm():
-    """
-    LLM 工厂函数：根据 config 中的 LLM_PROVIDER 返回对应的模型对象。
-
-    调用方不需要关心用的是哪家模型，只管拿到对象调用即可。
-    新增提供商只需在这里加一个 elif，其他代码完全不需要改动。
-    """
-    provider = settings.LLM_PROVIDER
-
-    if provider == "ollama":
-        from langchain_ollama import ChatOllama
-        logger.info(f"使用本地 Ollama 模型: {settings.OLLAMA_MODEL}")
-        return ChatOllama(
-            model=settings.OLLAMA_MODEL,
-            base_url=settings.OLLAMA_BASE_URL,
-            temperature=settings.TEMPERATURE,
-            timeout=60
-        )
-
-    elif provider == "deepseek":
-        from langchain_openai import ChatOpenAI
-        if not settings.DEEPSEEK_API_KEY:
-            raise ValueError(
-                "LLM_PROVIDER=deepseek，但 DEEPSEEK_API_KEY 未设置。"
-                "请在 .env 文件中添加: DEEPSEEK_API_KEY=你的密钥"
-            )
-        logger.info(f"使用 DeepSeek API 模型: {settings.DEEPSEEK_MODEL}")
-        return ChatOpenAI(
-            model=settings.DEEPSEEK_MODEL,
-            api_key=settings.DEEPSEEK_API_KEY,
-            base_url=settings.DEEPSEEK_BASE_URL,
-            temperature=settings.TEMPERATURE,
-        )
-
-    else:
-        raise ValueError(
-            f"不支持的 LLM_PROVIDER: '{provider}'。可选值: 'ollama' 或 'deepseek'"
-        )
 
 
 def sanitize_metadata(metadata: dict) -> dict:
@@ -95,7 +56,7 @@ class RAG:
     def __init__(self, documents: Optional[List] = None):
         from src.vector_store import VectorStore
         self.vector_store = VectorStore()
-        self.llm = get_llm()
+        self.llm = get_llm_with_fallback()
         self.final_retriever = None
         # all_documents 是 BM25 的数据源，累积所有上传过的文档
         self.all_documents: List = []
