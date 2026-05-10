@@ -156,7 +156,10 @@ class Translator:
 
         for i, chunk in enumerate(chunks):
             try:
-                result = chain.invoke({"text": chunk})
+                result = chain.invoke(
+                    {"text": chunk},
+                    config={"run_name": f"Translator.chunk_{i+1}_of_{len(chunks)}"},
+                )
                 translated_chunks.append(result.strip())
                 logger.debug(f"翻译块 {i+1}/{len(chunks)} 完成")
             except Exception as e:

@@ -91,6 +91,16 @@ class Settings(BaseSettings):
     TRANSLATION_TARGET_LANG: str = "zh"
 
     # ==========================================
+    # LangSmith 链路追踪
+    # ==========================================
+    # 在 https://smith.langchain.com 注册后获取 API Key
+    # 设置 LANGCHAIN_TRACING_V2=true 即可开启，不影响任何业务逻辑
+    LANGCHAIN_TRACING_V2: bool = False
+    LANGCHAIN_API_KEY: str = ""
+    LANGCHAIN_PROJECT: str = "industrial-rag"
+    LANGCHAIN_ENDPOINT: str = "https://api.smith.langchain.com"
+
+    # ==========================================
     # 安全与系统配置
     # ==========================================
     API_KEY: str = "your-secret-key-2026"

@@ -188,6 +188,7 @@ class RAG:
         from langchain_core.prompts import ChatPromptTemplate
         from langchain_core.output_parsers import StrOutputParser
         from langchain_core.runnables import RunnablePassthrough
+        from src.tracing import get_run_config
 
         if not self.final_retriever:
             return {
@@ -204,7 +205,10 @@ class RAG:
                 if self.hyde is not None
                 else question
             )
-            retrieved_docs = self.final_retriever.invoke(retrieval_query)
+            retrieved_docs = self.final_retriever.invoke(
+                retrieval_query,
+                config=get_run_config("retriever", metadata={"question": question}),
+            )
 
             if not retrieved_docs:
                 return {
@@ -233,7 +237,17 @@ class RAG:
                 | StrOutputParser()
             )
 
-            answer = chain.invoke(question)
+            answer = chain.invoke(
+                question,
+                config=get_run_config(
+                    "answer-generation",
+                    metadata={
+                        "question": question,
+                        "doc_count": len(retrieved_docs),
+                        "hyde_used": self.hyde is not None,
+                    },
+                ),
+            )
 
             sanitized_sources = []
             for doc in retrieved_docs:

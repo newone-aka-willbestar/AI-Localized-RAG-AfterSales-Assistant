@@ -6,12 +6,14 @@ FastAPI 后端入口。
    不阻塞 FastAPI 的异步事件循环
 2. 全局 rag 实例维护 all_documents 列表，保证多次上传后 BM25 不会丢失旧文档
 3. CORS 只开放必要来源，不用 allow_origins=["*"]
+4. LangSmith 追踪在 lifespan 最先初始化，确保在任何 LLM 调用前设好环境变量
 """
 import asyncio
 import gc
 import logging
 import os
 import tempfile
+from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 
 from typing import List
@@ -21,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from src.config import settings
+from src.tracing import setup_tracing
 from src.document_loader import DocumentLoader
 from src.rag import RAG
 from src.vector_store import VectorStore
@@ -29,7 +32,32 @@ from src.web_scraper import WebScraper, WebScraperError, get_url_store
 logging.basicConfig(level=settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="华科制造 AI 智能客服")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    FastAPI 生命周期钩子。
+
+    启动顺序：
+    1. LangSmith 追踪初始化（必须最先，确保后续所有 LLM 调用都被捕获）
+    2. RAG 实例化（会触发 get_llm() 和缓存恢复，可能有 LLM 调用）
+
+    这样即使启动阶段的 LLM 调用也会被 LangSmith 追踪到。
+    """
+    # Step 1: 初始化 LangSmith（在任何 LLM 调用之前）
+    setup_tracing()
+
+    # Step 2: 初始化全局资源
+    global rag
+    rag = RAG()
+
+    logger.info("服务启动完成")
+    yield
+    # 关闭阶段（如需清理资源在此处理）
+    logger.info("服务正在关闭")
+
+
+app = FastAPI(title="华科制造 AI 智能客服", lifespan=lifespan)
 
 # CORS：明确列出允许的来源，不用 * 全开
 # 本地开发时前端跑在 8501，生产环境替换为真实域名
@@ -49,8 +77,8 @@ app.add_middleware(
 # max_workers=4 表示最多同时处理 4 个问答请求
 _executor = ThreadPoolExecutor(max_workers=4)
 
-# 全局 RAG 实例
-rag = RAG()
+# 全局 RAG 实例（由 lifespan 初始化，此处声明类型供静态分析）
+rag: RAG = None  # type: ignore[assignment]
 
 
 class QuestionRequest(BaseModel):
