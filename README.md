@@ -1,6 +1,6 @@
-# AI 论文助理 · Personal Research Assistant
+# AI 数字员工 · Intelligent AI Assistant
 
-> 基于 RAG 的个人知识库问答与学术报表生成系统。支持 PDF/Word 上传、网页抓取入库、多轮对话、5 类学术报表生成、Word 导出、全自动量化评估。
+> 基于 RAG 的本地知识库问答与智能报表生成系统。支持 PDF/Word 上传、网页抓取入库、多轮对话、5 类报表生成、Word 导出、全自动量化评估。
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.135-green)](https://fastapi.tiangolo.com)
