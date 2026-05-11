@@ -153,8 +153,8 @@ class RAG:
         from langchain_core.output_parsers import StrOutputParser
 
         prompt = ChatPromptTemplate.from_template(
-            "你是华科制造的 AI 售后助手。请友好地回复用户的问候或闲聊，"
-            "并适时引导他们提出设备相关问题。\n\n用户: {input}"
+            "你是一个 AI 数字员工助手。请友好地回复用户的问候或闲聊，"
+            "并适时引导他们上传文档或提出知识库相关问题。\n\n用户: {input}"
         )
         chain = prompt | self.llm | StrOutputParser()
         try:
@@ -212,7 +212,7 @@ class RAG:
             history_section = f"\n{history}\n" if history else ""
 
             prompt = ChatPromptTemplate.from_template(
-                """你是一个专业的工业售后专家。请仅根据[参考信息]回答问题。
+                """你是一个专业的 AI 数字员工助手。请仅根据[参考信息]回答问题。
 如果参考信息中没有相关内容，请直接说"知识库中暂无此信息"，禁止猜测。
 {history}
 [参考信息]

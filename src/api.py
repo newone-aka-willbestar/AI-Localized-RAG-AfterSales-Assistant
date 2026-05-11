@@ -84,7 +84,7 @@ async def lifespan(app: FastAPI):
     logger.info("服务正在关闭")
 
 
-app = FastAPI(title="华科制造 AI 智能客服", lifespan=lifespan)
+app = FastAPI(title="AI 数字员工", lifespan=lifespan)
 
 # CORS：明确列出允许的来源，不用 * 全开
 # 本地开发时前端跑在 8501，生产环境替换为真实域名

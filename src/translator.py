@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 _MAX_CHARS_PER_CHUNK = 1500
 
 _TRANSLATION_PROMPT = """\
-你是一个专业的工业技术文档翻译专家。
+你是一个专业的文档翻译专家。
 请将以下文本翻译为简体中文。
 
 要求：
