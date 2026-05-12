@@ -8,7 +8,22 @@
       "Bash(git reset *)",
       "Bash(gh auth *)",
       "PowerShell(cd \"D:\\\\ai-resume-interview-system\"; $env:GIT_SSL_NO_VERIFY=\"true\"; git push --force-with-lease origin claude/jolly-bartik-2c9563 2>&1)",
-      "Bash(python -m pytest tests/ -v --tb=short)"
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(git commit -m ' *)",
+      "Bash(git add *)",
+      "Bash(python -c ' *)",
+      "Bash(Get-ChildItem -Path D:\\\\ai-resume-interview-system -Recurse -Name)",
+      "Bash(cd \"D:\\\\ai-resume-interview-system\" && grep -o \"settings\\\\.[A-Z_]*\" src/*.py | cut -d: -f2 | sort -u > /tmp/used_fields.txt && cat /tmp/used_fields.txt)",
+      "Bash(python3 -c \"import src.api; import src.rag; import src.web_scraper; import src.translator; import src.memory; import src.tracing\")",
+      "Bash(git commit -m 'fix: add missing langchain-openai dependency for DeepSeek provider *)",
+      "Bash(python -c \"import langgraph; print\\(langgraph.__version__\\)\")",
+      "Bash(pip show *)",
+      "Bash(python -c \"import src.config; print\\('config OK'\\)\")",
+      "Bash(python -c \"from src.config import settings; print\\('OK'\\)\")",
+      "Bash(cd /d D:\\\\ai-resume-interview-system)",
+      "Bash(python -c \"from src.config import settings; print\\('config OK:', settings.LLM_PROVIDER\\)\")",
+      "Bash(git log *)",
+      "Bash(git commit *)"
     ]
   }
 }
