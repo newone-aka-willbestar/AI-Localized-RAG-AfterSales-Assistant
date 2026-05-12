@@ -113,7 +113,8 @@ class TestLLMJudge:
 
     def test_result_has_required_fields(self):
         ev = make_evaluator(with_llm=True)
-        with patch("src.evaluator.ChatPromptTemplate") as mock_pt:
+        # ChatPromptTemplate 在函数内懒加载，patch 原始模块路径
+        with patch("langchain_core.prompts.ChatPromptTemplate") as mock_pt:
             chain = MagicMock()
             chain.invoke.return_value = "SCORE: 3\nREASON: 完全正确"
             mock_pt.from_template.return_value.__or__ = MagicMock(return_value=chain)
@@ -123,7 +124,7 @@ class TestLLMJudge:
 
     def test_llm_exception_returns_minus_one(self):
         ev = make_evaluator(with_llm=True)
-        with patch("src.evaluator.ChatPromptTemplate") as mock_pt:
+        with patch("langchain_core.prompts.ChatPromptTemplate") as mock_pt:
             chain = MagicMock()
             chain.invoke.side_effect = RuntimeError("API 超时")
             mock_pt.from_template.return_value.__or__ = MagicMock(return_value=chain)

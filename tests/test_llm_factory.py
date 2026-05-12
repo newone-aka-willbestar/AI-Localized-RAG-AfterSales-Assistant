@@ -80,7 +80,8 @@ class TestBuildPrimaryLLM:
             mock_settings.DEEPSEEK_BASE_URL = "https://api.deepseek.com"
             mock_settings.TEMPERATURE = 0.0
 
-            with patch("src.llm_factory.ChatOpenAI") as mock_cls:
+            # ChatOpenAI 在函数内懒加载，patch 原始模块路径
+            with patch("langchain_openai.ChatOpenAI") as mock_cls:
                 mock_cls.return_value = MagicMock()
                 from src.llm_factory import _build_primary_llm
                 _build_primary_llm()
@@ -102,7 +103,8 @@ class TestBuildPrimaryLLM:
             mock_settings.OLLAMA_BASE_URL = "http://localhost:11434"
             mock_settings.TEMPERATURE = 0.0
 
-            with patch("src.llm_factory.ChatOllama") as mock_cls:
+            # ChatOllama 在函数内懒加载，patch 原始模块路径
+            with patch("langchain_ollama.ChatOllama") as mock_cls:
                 mock_cls.return_value = MagicMock()
                 from src.llm_factory import _build_primary_llm
                 _build_primary_llm()
