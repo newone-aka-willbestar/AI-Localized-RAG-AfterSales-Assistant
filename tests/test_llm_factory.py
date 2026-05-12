@@ -1,164 +1,116 @@
 """
-LLM 工厂（重试与降级）测试。
+LLM 工厂模块测试。
 
 策略：
-- Mock 底层 LLM，不做真实 API 调用
-- 验证：正常调用透传、重试触发次数、降级切换、链式操作符
+- Mock LangChain LLM 对象，不做真实 API 调用
+- 验证：返回值是 Runnable、管道操作符兼容、降级构建失败时的容错
 """
 import pytest
-from unittest.mock import MagicMock, patch, call
-
-from src.llm_factory import LLMWithFallback, get_llm_with_fallback, _FallbackChain
+from unittest.mock import MagicMock, patch
 
 
 # ==========================================
-# 正常路径
+# get_llm_with_fallback 返回标准 Runnable
 # ==========================================
 
-class TestNormalPath:
+class TestGetLLMWithFallback:
 
-    def test_invoke_returns_primary_result(self):
-        """主模型正常时，直接返回其结果"""
-        mock_primary = MagicMock()
-        mock_primary.invoke.return_value = "主模型答案"
+    def _mock_chat_llm(self):
+        """构造一个具备 with_retry / with_fallbacks / invoke 的 mock LLM"""
+        llm = MagicMock()
+        # with_retry 返回自身（模拟链式调用）
+        retried = MagicMock()
+        retried.with_fallbacks = MagicMock(return_value=retried)
+        retried.invoke = MagicMock(return_value=MagicMock(content="mock answer"))
+        # 支持 | 操作符（LangChain Runnable 接口）
+        retried.__or__ = MagicMock(return_value=MagicMock())
+        llm.with_retry = MagicMock(return_value=retried)
+        return llm, retried
 
-        llm = LLMWithFallback.__new__(LLMWithFallback)
-        llm._primary = mock_primary
-        llm._fallback = None
-        llm._using_fallback = False
+    def test_returns_object_with_invoke(self):
+        """返回的对象必须有 invoke 方法（Runnable 协议）"""
+        with patch("src.llm_factory._build_primary_llm") as mock_primary, \
+             patch("src.llm_factory._build_fallback_llm") as mock_fallback:
+            primary_llm, primary_retried = self._mock_chat_llm()
+            fallback_llm, fallback_retried = self._mock_chat_llm()
+            mock_primary.return_value = primary_llm
+            mock_fallback.return_value = fallback_llm
 
-        result = llm._invoke_with_retry(mock_primary, "测试输入")
-        assert result == "主模型答案"
+            from src.llm_factory import get_llm_with_fallback
+            result = get_llm_with_fallback()
+            assert hasattr(result, "invoke")
 
-    def test_is_using_fallback_false_initially(self):
-        """初始状态不是降级模式"""
-        with patch("src.llm_factory._build_primary_llm", return_value=MagicMock()):
-            llm = LLMWithFallback()
-        assert llm.is_using_fallback is False
+    def test_fallback_build_failure_still_returns_runnable(self):
+        """备用模型构建失败时，只用主模型，不抛出异常"""
+        with patch("src.llm_factory._build_primary_llm") as mock_primary, \
+             patch("src.llm_factory._build_fallback_llm") as mock_fallback:
+            primary_llm, primary_retried = self._mock_chat_llm()
+            mock_primary.return_value = primary_llm
+            mock_fallback.side_effect = RuntimeError("Ollama 未安装")
 
+            from src.llm_factory import get_llm_with_fallback
+            result = get_llm_with_fallback()
+            assert result is not None
+            assert hasattr(result, "invoke")
 
-# ==========================================
-# 降级路径
-# ==========================================
+    def test_primary_llm_called_with_retry(self):
+        """主模型应该经过 with_retry 包装"""
+        with patch("src.llm_factory._build_primary_llm") as mock_primary, \
+             patch("src.llm_factory._build_fallback_llm") as mock_fallback:
+            primary_llm, primary_retried = self._mock_chat_llm()
+            mock_primary.return_value = primary_llm
+            mock_fallback.side_effect = RuntimeError("跳过备用")
 
-class TestFallback:
-
-    def test_fallback_triggered_when_primary_fails(self):
-        """主模型抛 ConnectionError，切换到备用模型"""
-        mock_primary = MagicMock()
-        mock_primary.invoke.side_effect = ConnectionError("网络断了")
-
-        mock_fallback = MagicMock()
-        mock_fallback.invoke.return_value = "备用答案"
-
-        llm = LLMWithFallback.__new__(LLMWithFallback)
-        llm._primary = mock_primary
-        llm._fallback = None
-        llm._using_fallback = False
-
-        with patch("src.llm_factory._build_fallback_llm", return_value=mock_fallback):
-            with patch.object(LLMWithFallback, "_invoke_with_retry",
-                              side_effect=[ConnectionError("超时"), "备用答案"]):
-                result = llm.invoke("输入")
-
-        assert result == "备用答案"
-
-    def test_is_using_fallback_true_after_fallback(self):
-        """降级发生后，is_using_fallback 变为 True"""
-        mock_primary = MagicMock()
-        mock_fallback = MagicMock()
-        mock_fallback.invoke.return_value = "降级答案"
-
-        llm = LLMWithFallback.__new__(LLMWithFallback)
-        llm._primary = mock_primary
-        llm._fallback = None
-        llm._using_fallback = False
-
-        with patch("src.llm_factory._build_fallback_llm", return_value=mock_fallback):
-            with patch.object(LLMWithFallback, "_invoke_with_retry",
-                              side_effect=[RuntimeError("API 挂了"), "降级答案"]):
-                llm.invoke("输入")
-
-        assert llm.is_using_fallback is True
-
-    def test_fallback_llm_lazily_initialized(self):
-        """降级 LLM 只在首次需要时初始化"""
-        mock_primary = MagicMock()
-        mock_fallback = MagicMock()
-        mock_fallback.invoke.return_value = "ok"
-
-        llm = LLMWithFallback.__new__(LLMWithFallback)
-        llm._primary = mock_primary
-        llm._fallback = None
-        llm._using_fallback = False
-
-        with patch("src.llm_factory._build_fallback_llm", return_value=mock_fallback) as mock_build:
-            # 主模型正常 → build_fallback_llm 不应被调用
-            with patch.object(LLMWithFallback, "_invoke_with_retry", return_value="主模型答案"):
-                llm.invoke("输入")
-            mock_build.assert_not_called()
+            from src.llm_factory import get_llm_with_fallback
+            get_llm_with_fallback()
+            primary_llm.with_retry.assert_called_once()
 
 
 # ==========================================
-# 链式操作符
+# _build_primary_llm 配置分支
 # ==========================================
 
-class TestChaining:
+class TestBuildPrimaryLLM:
 
-    def test_pipe_operator_returns_fallback_chain(self):
-        """llm | parser 返回 _FallbackChain"""
-        with patch("src.llm_factory._build_primary_llm", return_value=MagicMock()):
-            llm = LLMWithFallback()
-        parser = MagicMock()
-        chain = llm | parser
-        assert isinstance(chain, _FallbackChain)
+    def test_deepseek_provider_uses_chat_openai(self):
+        with patch("src.llm_factory.settings") as mock_settings:
+            mock_settings.LLM_PROVIDER = "deepseek"
+            mock_settings.DEEPSEEK_API_KEY = "sk-test"
+            mock_settings.DEEPSEEK_MODEL = "deepseek-chat"
+            mock_settings.DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+            mock_settings.TEMPERATURE = 0.0
 
-    def test_fallback_chain_invoke_calls_both_steps(self):
-        """_FallbackChain.invoke 先调用 LLM，再调用下一步"""
-        mock_llm = MagicMock()
-        mock_llm.invoke.return_value = "llm_output"
+            with patch("src.llm_factory.ChatOpenAI") as mock_cls:
+                mock_cls.return_value = MagicMock()
+                from src.llm_factory import _build_primary_llm
+                _build_primary_llm()
+                mock_cls.assert_called_once()
 
-        mock_next = MagicMock()
-        mock_next.invoke.return_value = "final_output"
+    def test_deepseek_raises_when_no_api_key(self):
+        with patch("src.llm_factory.settings") as mock_settings:
+            mock_settings.LLM_PROVIDER = "deepseek"
+            mock_settings.DEEPSEEK_API_KEY = ""
 
-        chain = _FallbackChain(mock_llm, mock_next)
-        result = chain.invoke("input")
+            from src.llm_factory import _build_primary_llm
+            with pytest.raises(ValueError, match="DEEPSEEK_API_KEY"):
+                _build_primary_llm()
 
-        mock_llm.invoke.assert_called_once_with("input")
-        mock_next.invoke.assert_called_once_with("llm_output")
-        assert result == "final_output"
+    def test_ollama_provider_uses_chat_ollama(self):
+        with patch("src.llm_factory.settings") as mock_settings:
+            mock_settings.LLM_PROVIDER = "ollama"
+            mock_settings.OLLAMA_MODEL = "qwen2:7b"
+            mock_settings.OLLAMA_BASE_URL = "http://localhost:11434"
+            mock_settings.TEMPERATURE = 0.0
 
-    def test_multiple_pipe_chaining(self):
-        """prompt | llm | parser 三段链正常执行"""
-        mock_llm = MagicMock()
-        mock_llm.invoke.return_value = "llm_out"
+            with patch("src.llm_factory.ChatOllama") as mock_cls:
+                mock_cls.return_value = MagicMock()
+                from src.llm_factory import _build_primary_llm
+                _build_primary_llm()
+                mock_cls.assert_called_once()
 
-        mock_parser = MagicMock()
-        mock_parser.invoke.return_value = "parsed"
-
-        with patch("src.llm_factory._build_primary_llm", return_value=mock_llm):
-            llm = LLMWithFallback()
-
-        chain = llm | mock_parser
-        result = chain.invoke("raw_input")
-
-        assert result == "parsed"
-
-
-# ==========================================
-# get_llm_with_fallback 工厂
-# ==========================================
-
-class TestFactory:
-
-    def test_get_llm_with_fallback_returns_instance(self):
-        with patch("src.llm_factory._build_primary_llm", return_value=MagicMock()):
-            llm = get_llm_with_fallback()
-        assert isinstance(llm, LLMWithFallback)
-
-    def test_each_call_returns_new_instance(self):
-        """每次调用返回独立实例，互不影响状态"""
-        with patch("src.llm_factory._build_primary_llm", return_value=MagicMock()):
-            llm1 = get_llm_with_fallback()
-            llm2 = get_llm_with_fallback()
-        assert llm1 is not llm2
+    def test_unknown_provider_raises_value_error(self):
+        with patch("src.llm_factory.settings") as mock_settings:
+            mock_settings.LLM_PROVIDER = "unknown_provider"
+            from src.llm_factory import _build_primary_llm
+            with pytest.raises(ValueError):
+                _build_primary_llm()

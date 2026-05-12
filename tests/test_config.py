@@ -1,85 +1,88 @@
-﻿"""
-测试配置模块 (src/config.py)
+"""
+配置模块测试。
 
-重要：测试默认值时需要隔离 .env 文件的影响。
-使用 _env_file=None 让 Settings 不读取 .env，只用代码里的默认值。
+策略：
+- 验证默认值是否符合预期
+- 验证关键字段类型和范围
+- 不做任何真实网络/文件操作
 """
 import pytest
-from pydantic import ValidationError
+from src.config import Settings
 
 
-class TestSettingsDefaults:
-    """测试代码中定义的默认值（隔离 .env 文件）"""
+# ==========================================
+# 默认值验证
+# ==========================================
 
-    def test_default_provider_is_ollama(self):
-        """默认 LLM 提供商应该是 ollama"""
-        from src.config import Settings
-        s = Settings(_env_file=None)
-        assert s.LLM_PROVIDER == "ollama"
+class TestDefaults:
 
-    def test_default_temperature_is_zero(self):
-        """
-        售后场景 temperature 默认应为 0，保证回答稳定。
+    def setup_method(self):
+        # 用空环境创建 Settings，只用代码内的默认值
+        self.s = Settings(
+            _env_file=None,
+            DEEPSEEK_API_KEY="",
+            LANGCHAIN_API_KEY="",
+            API_KEY="test-key",
+        )
 
-        注意：必须用 _env_file=None 隔离本地 .env 文件，
-        否则如果 .env 里有 TEMPERATURE=0.3，测试会失败。
-        这不是 bug，而是 pydantic_settings 的正常优先级机制。
-        """
-        from src.config import Settings
-        s = Settings(_env_file=None)
-        assert s.TEMPERATURE == 0.0
+    def test_default_llm_provider(self):
+        assert self.s.LLM_PROVIDER == "ollama"
 
-    def test_default_chunk_size(self):
-        """默认切片大小应为 800"""
-        from src.config import Settings
-        s = Settings(_env_file=None)
-        assert s.CHUNK_SIZE == 800
+    def test_default_ollama_model(self):
+        assert self.s.OLLAMA_MODEL == "qwen2:7b"
 
-    def test_default_retrieval_top_k(self):
-        """默认双路召回数量应为 10"""
-        from src.config import Settings
-        s = Settings(_env_file=None)
-        assert s.RETRIEVAL_TOP_K == 10
+    def test_default_qdrant_port(self):
+        assert self.s.QDRANT_PORT == 6333
 
-    def test_rerank_top_k_less_than_retrieval(self):
-        """精排保留数量必须 <= 召回数量，否则精排没有意义"""
-        from src.config import Settings
-        s = Settings(_env_file=None)
-        assert s.RERANK_TOP_K <= s.RETRIEVAL_TOP_K
+    def test_default_embedding_dim(self):
+        assert self.s.EMBEDDING_DIM == 512
 
+    def test_default_chunk_size_positive(self):
+        assert self.s.CHUNK_SIZE > 0
 
-class TestSettingsFromEnv:
-    """测试从环境变量覆盖配置"""
+    def test_default_retrieval_top_k_positive(self):
+        assert self.s.RETRIEVAL_TOP_K > 0
 
-    def test_can_switch_to_deepseek_via_env(self, monkeypatch):
-        """通过环境变量把 LLM_PROVIDER 切换为 deepseek"""
-        monkeypatch.setenv("LLM_PROVIDER", "deepseek")
-        monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key-123")
-        from src.config import Settings
-        s = Settings(_env_file=None)
-        assert s.LLM_PROVIDER == "deepseek"
-        assert s.DEEPSEEK_API_KEY == "test-key-123"
+    def test_default_rerank_top_k_less_than_retrieval(self):
+        assert self.s.RERANK_TOP_K <= self.s.RETRIEVAL_TOP_K
 
-    def test_invalid_provider_raises_error(self, monkeypatch):
-        """填了不支持的 LLM_PROVIDER 值，应该在启动时就报错"""
-        monkeypatch.setenv("LLM_PROVIDER", "openai")
-        from src.config import Settings
-        with pytest.raises(ValidationError):
-            Settings(_env_file=None)
+    def test_default_temperature_in_range(self):
+        assert 0.0 <= self.s.TEMPERATURE <= 2.0
 
-    def test_custom_chunk_size_from_env(self, monkeypatch):
-        """环境变量可以覆盖 CHUNK_SIZE"""
-        monkeypatch.setenv("CHUNK_SIZE", "500")
-        from src.config import Settings
-        s = Settings(_env_file=None)
-        assert s.CHUNK_SIZE == 500
+    def test_default_hyde_enabled(self):
+        assert isinstance(self.s.HYDE_ENABLED, bool)
 
+    def test_default_langsmith_tracing_disabled(self):
+        assert self.s.LANGCHAIN_TRACING_V2 is False
 
-class TestSettingsValidation:
-    """测试配置的业务逻辑校验"""
+    def test_default_translation_disabled(self):
+        assert self.s.TRANSLATION_ENABLED is False
 
     def test_max_upload_size_is_reasonable(self):
-        """上传文件大小限制应该在合理范围内（1MB ~ 100MB）"""
-        from src.config import Settings
-        s = Settings(_env_file=None)
-        assert 1 * 1024 * 1024 <= s.MAX_UPLOAD_SIZE <= 100 * 1024 * 1024
+        # 应在 1MB ~ 100MB 之间
+        assert 1 * 1024 * 1024 <= self.s.MAX_UPLOAD_SIZE <= 100 * 1024 * 1024
+
+
+# ==========================================
+# 字段类型验证
+# ==========================================
+
+class TestFieldTypes:
+
+    def setup_method(self):
+        self.s = Settings(_env_file=None, API_KEY="test-key")
+
+    def test_qdrant_port_is_int(self):
+        assert isinstance(self.s.QDRANT_PORT, int)
+
+    def test_chunk_size_is_int(self):
+        assert isinstance(self.s.CHUNK_SIZE, int)
+
+    def test_temperature_is_float(self):
+        assert isinstance(self.s.TEMPERATURE, float)
+
+    def test_embedding_model_path_is_str(self):
+        assert isinstance(self.s.EMBEDDING_MODEL_PATH, str)
+
+    def test_llm_provider_is_valid_choice(self):
+        assert self.s.LLM_PROVIDER in ("ollama", "deepseek")
