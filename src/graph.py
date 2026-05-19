@@ -165,8 +165,9 @@ def build_ask_graph(rag, intent_classifier, session_memory):
     def route_by_intent(state: AskState) -> str:
         """
         根据意图分类结果决定走哪条路径：
-        - chitchat → 直接生成，跳过 RAG 检索
-        - 其他     → 先加载历史，再 RAG 检索生成
+        - chitchat              → 直接生成，跳过 RAG 检索
+        - knowledge_query /
+          operation / complaint → 先加载历史，再 RAG 检索生成
         """
         return "chitchat" if state["intent"] == "chitchat" else "load_history"
 

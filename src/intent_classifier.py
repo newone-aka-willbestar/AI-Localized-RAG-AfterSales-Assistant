@@ -46,45 +46,57 @@ _CHITCHAT_PATTERNS = [
 ]
 
 _COMPLAINT_KEYWORDS = [
-    "投诉", "举报", "太差", "垃圾", "坑爹", "骗人", "退款", "赔偿",
-    "不满意", "失望", "坏了", "出问题", "质量差", "售后差", "态度差",
+    # 明确投诉/维权词，不含泛化负面词
+    "投诉", "举报", "退款", "赔偿", "骗人", "坑爹", "垃圾产品",
+    "质量太差", "售后太差", "要求退货", "强烈不满",
 ]
 
 _OPERATION_PATTERNS = [
-    r"(怎么|如何|步骤|操作|流程|方法|教我|教一下).{0,10}(使用|安装|启动|拆卸|维修|更换|校准|设置|配置)",
-    r"(使用|安装|启动|拆卸|维修|更换|校准|设置|配置).{0,10}(怎么|如何|步骤|操作|流程|方法)",
-    r"(第.步|步骤\d|操作手册|操作规程)",
+    r"(怎么|如何|步骤|操作|流程|方法|教我|教一下).{0,15}(使用|安装|启动|配置|设置|上传|下载|导出|生成)",
+    r"(使用|安装|启动|配置|设置|上传|下载|导出|生成).{0,15}(怎么|如何|步骤|操作|流程|方法)",
+    r"(第.步|步骤\d|操作手册|操作流程|使用教程)",
 ]
 
-# Embedding 兜底用的意图锚点句（各取代表性表达）
+# Embedding 兜底用的意图锚点句
+# ⚠️ 锚点要与实际使用场景（学术/知识助手）对齐，否则会系统性误判
 _INTENT_ANCHORS: dict[Intent, list[str]] = {
     "knowledge_query": [
-        "产品保修期是多久",
-        "错误代码E05是什么意思",
-        "设备最大承载重量是多少",
-        "这个型号支持哪些功能",
-        "备件在哪里购买",
+        # 学术/知识查询
+        "深度学习在图像识别中的应用是什么",
+        "卷积神经网络的基本原理是什么",
+        "迁移学习的优势有哪些",
+        "这篇论文的研究方法是什么",
+        "数据增强有哪些常用技术",
+        "ResNet 和 VGG 有什么区别",
+        "注意力机制如何提升模型性能",
+        "这个模型在哪个数据集上评测的",
+        "准确率和召回率的区别是什么",
+        "文献综述应该包含哪些内容",
     ],
     "operation": [
-        "如何安装这个设备",
-        "怎么操作控制面板",
-        "维修步骤是什么",
-        "怎么更换零件",
-        "启动流程是怎样的",
+        "如何上传 PDF 文件到知识库",
+        "怎么生成一份文献综述报告",
+        "如何导出 Word 格式的报告",
+        "怎么抓取网页内容入库",
+        "如何清空对话历史",
+        "怎么运行评估脚本",
+        "如何设置 API Key",
+        "怎么配置 DeepSeek 接口",
     ],
     "complaint": [
-        "我要投诉你们的产品质量",
-        "售后服务太差了",
-        "这个东西坏了要退款",
-        "非常不满意",
-        "产品有质量问题",
+        "我要投诉你们的服务质量",
+        "这个系统太差了要退款",
+        "回答完全错误非常不满意",
+        "你们骗人要举报",
+        "强烈要求赔偿损失",
     ],
     "chitchat": [
-        "你好啊今天天气怎么样",
-        "聊聊天吧",
-        "你是谁啊",
-        "随便说点什么",
-        "谢谢你的帮助",
+        "你好今天天气怎么样",
+        "聊聊天吧随便说点什么",
+        "你是谁你叫什么名字",
+        "谢谢你帮了我很多",
+        "我们来聊点别的话题",
+        "你觉得 AI 会取代人类吗",
     ],
 }
 
@@ -174,9 +186,8 @@ class IntentClassifier:
             if query_norm == 0:
                 return IntentResult(intent="knowledge_query", confidence=0.5, method="embedding")
 
-            best_intent: Intent = "knowledge_query"
-            best_score = -1.0
-
+            # 计算每个意图的平均相似度得分
+            intent_scores: dict[Intent, float] = {}
             for intent, vecs in self._anchor_vecs.items():
                 scores = []
                 for anchor_vec in vecs:
@@ -186,10 +197,26 @@ class IntentClassifier:
                     cos_sim = float(np.dot(query_vec, anchor_vec) / (query_norm * anchor_norm))
                     scores.append(cos_sim)
                 if scores:
-                    avg_score = sum(scores) / len(scores)
-                    if avg_score > best_score:
-                        best_score = avg_score
-                        best_intent = intent
+                    intent_scores[intent] = sum(scores) / len(scores)
+
+            if not intent_scores:
+                return IntentResult(intent="knowledge_query", confidence=0.5, method="embedding")
+
+            sorted_intents = sorted(intent_scores.items(), key=lambda x: x[1], reverse=True)
+            best_intent, best_score = sorted_intents[0]
+
+            # 置信度差距保护：最高分与次高分差距不足 0.04 时，
+            # 优先选 knowledge_query（避免低置信度下误判为 complaint）
+            if len(sorted_intents) >= 2:
+                second_score = sorted_intents[1][1]
+                margin = best_score - second_score
+                if margin < 0.04 and best_intent != "knowledge_query":
+                    logger.debug(
+                        f"Embedding 置信度差距过小({margin:.3f})，"
+                        f"从 {best_intent} 回退到 knowledge_query"
+                    )
+                    best_intent = "knowledge_query"
+                    best_score = intent_scores.get("knowledge_query", second_score)
 
             confidence = min(1.0, max(0.0, (best_score + 1) / 2))  # [-1,1] → [0,1]
             logger.debug(f"Embedding 分类: {best_intent} (score={best_score:.3f})")
