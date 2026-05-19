@@ -63,3 +63,10 @@ desktop.ini
 logs/
 tmp/
 temp/
+
+# ==========================================
+# 本地私有文档（不上传 GitHub）
+# ==========================================
+docs/private/
+REQUIREMENTS_PRIVATE.md
+rag_cache/
