@@ -96,7 +96,7 @@ _cors_origins = os.environ.get(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -206,7 +206,7 @@ async def upload(file: UploadFile = File(...), api_key: str = Depends(verify_api
             tmp.write(await file.read())
 
         # 文档解析是 CPU 密集型同步操作，放线程池执行
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         loader = DocumentLoader()
         docs = await loop.run_in_executor(
             _executor,
@@ -270,7 +270,7 @@ async def crawl(request: CrawlRequest, api_key: str = Depends(verify_api_key)):
     if not urls:
         raise HTTPException(status_code=400, detail="urls 不能为空")
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     scraper = WebScraper()
     vector_store = VectorStore()
 
@@ -369,7 +369,7 @@ async def ask(request: QuestionRequest, api_key: str = Depends(verify_api_key)):
     - 其他意图  → 完整 RAG 流程 + 历史上下文注入
     - session_id 可选，传入时开启多轮记忆，不传则单轮无状态（向后兼容）
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     # 构建初始状态，交给图执行
     initial_state = make_initial_state(
@@ -453,7 +453,7 @@ async def generate_report(request: ReportRequest, api_key: str = Depends(verify_
     if request.max_sources < 1 or request.max_sources > 20:
         raise HTTPException(status_code=400, detail="max_sources 范围：1-20")
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     with audit_log.Timer() as timer:
         result = await loop.run_in_executor(

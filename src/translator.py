@@ -127,8 +127,8 @@ class Translator:
     def _get_llm(self):
         """懒加载 LLM，避免模块顶层 import"""
         if self._llm is None:
-            from src.rag import get_llm
-            self._llm = get_llm()
+            from src.llm_factory import get_llm_with_fallback
+            self._llm = get_llm_with_fallback()
         return self._llm
 
     def translate(self, text: str) -> str:
