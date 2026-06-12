@@ -57,31 +57,51 @@ def load_test_cases(file_path: str) -> list:
     return json.loads(p.read_text(encoding="utf-8"))
 
 
-def call_ask(question: str, api_key: str) -> tuple[str, list, float]:
+def call_ask(question: str, api_key: str, max_retries: int = 3) -> tuple[str, list, float]:
     """
     调用 /ask 接口，返回 (answer, sources, latency_ms)。
-    失败时返回空答案，不抛异常。
+
+    带重试：评估会短时间内连发几十个请求，容易触发 LLM 服务端限流，
+    导致后端返回 500 / 空答案。这类瞬时错误会污染评估结果（把一个
+    本可正确回答的问题记为空答案），因此对 5xx、连接异常、空答案做
+    指数退避重试。真实的"知识库中暂无此信息"是非空文本，不会被误重试。
+
+    所有重试都失败时返回空答案，不抛异常（让评估继续跑完其余用例）。
     """
     headers = {"x-api-key": api_key}
-    t0 = time.perf_counter()
-    try:
-        resp = requests.post(
-            f"{API_BASE_URL}/ask",
-            json={"question": question},
-            headers=headers,
-            timeout=180,
-        )
-        latency_ms = (time.perf_counter() - t0) * 1000
-        if resp.status_code == 200:
-            data = resp.json()
-            return data.get("answer", ""), data.get("sources", []), latency_ms
-        else:
-            print(f"  ⚠️  HTTP {resp.status_code}: {resp.text[:100]}")
-            return "", [], latency_ms
-    except Exception as e:
-        latency_ms = (time.perf_counter() - t0) * 1000
-        print(f"  ❌  请求失败: {e}")
-        return f"请求异常: {e}", [], latency_ms
+    last_err = ""
+    for attempt in range(1, max_retries + 1):
+        t0 = time.perf_counter()
+        try:
+            resp = requests.post(
+                f"{API_BASE_URL}/ask",
+                json={"question": question},
+                headers=headers,
+                timeout=180,
+            )
+            latency_ms = (time.perf_counter() - t0) * 1000
+            if resp.status_code == 200:
+                data = resp.json()
+                answer = data.get("answer", "")
+                if answer.strip():
+                    return answer, data.get("sources", []), latency_ms
+                last_err = "空答案"
+            elif resp.status_code in (429, 500, 502, 503, 504):
+                last_err = f"HTTP {resp.status_code}: {resp.text[:80]}"
+            else:
+                # 4xx（鉴权、参数错误等）重试也没用，直接返回
+                print(f"  ⚠️  HTTP {resp.status_code}: {resp.text[:100]}")
+                return "", [], latency_ms
+        except Exception as e:
+            last_err = str(e)
+
+        if attempt < max_retries:
+            backoff = 2.0 * attempt
+            print(f"  ⏳  第 {attempt} 次失败（{last_err[:60]}），{backoff:.0f}s 后重试…")
+            time.sleep(backoff)
+
+    print(f"  ❌  重试 {max_retries} 次仍失败: {last_err[:80]}")
+    return "", [], (time.perf_counter() - t0) * 1000
 
 
 def build_evaluator(api_key: str, enable_llm: bool):
@@ -172,6 +192,10 @@ def run(args) -> None:
         answer, sources, latency_ms = call_ask(question, api_key)
         print(f"        耗时: {latency_ms:.0f}ms | 来源: {len(sources)} 条")
 
+        # 请求间隔：避免短时间高频请求触发 LLM 服务端限流
+        if i < len(test_cases):
+            time.sleep(args.delay)
+
         if evaluator._embeddings is None:
             # 降级：无 Embedding 时只记录耗时
             scored = {
@@ -228,4 +252,5 @@ if __name__ == "__main__":
     parser.add_argument("--key",          default="",                  help="API Key")
     parser.add_argument("--threshold",    type=float, default=0.75,    help="语义相似度正确阈值（默认 0.75）")
     parser.add_argument("--no-llm-judge", action="store_true",         help="跳过 LLM 裁判和忠实度评分（更快）")
+    parser.add_argument("--delay",        type=float, default=1.5,     help="每条用例之间的请求间隔秒数，降低限流概率（默认 1.5）")
     run(parser.parse_args())

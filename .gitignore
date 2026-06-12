@@ -70,3 +70,7 @@ temp/
 docs/private/
 REQUIREMENTS_PRIVATE.md
 rag_cache/
+
+# 评估临时产物
+test/eval_run.log
+test/eval_run.err
