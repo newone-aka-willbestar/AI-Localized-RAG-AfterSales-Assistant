@@ -27,7 +27,9 @@ FlashRank==0.2.10
 fastapi>=0.110.0
 uvicorn>=0.27.0
 python-multipart>=0.0.9
-streamlit>=1.28.0
+# Gradio 前端（app_gradio.py 按 5.x API 编写；6.x 移除了
+# Chatbot tuple 格式与 Blocks(theme=, css=) 参数，暂不升级）
+gradio>=5.0,<6.0
 
 # ==========================================
 # 4. 大模型与 Embedding (嵌入模型)

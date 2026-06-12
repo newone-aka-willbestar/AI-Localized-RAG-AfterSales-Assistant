@@ -97,9 +97,15 @@ def get_health(api_key: str) -> str:
                 f"🤖 {h.get('llm_provider', '-').upper()}　"
                 f"⚡ HyDE {'ON' if h.get('hyde_enabled') else 'OFF'}"
             )
+        if r.status_code == 403:
+            return "🔴 **API Key 无效**，请检查顶部密钥是否正确"
+        return f"🟠 **后端异常** HTTP {r.status_code}"
+    except requests.exceptions.ConnectionError:
+        return "🔴 **后端未连接**，请确认 `uvicorn src.api:app --reload --port 8000` 已运行"
+    except requests.exceptions.Timeout:
+        return "🟠 **后端响应超时**，服务可能正在启动中"
     except Exception as e:
-        pass
-    return "🔴 **后端未连接**，请确认 `uvicorn src.api:app --reload --port 8000` 已运行"
+        return f"🔴 **连接异常**：{e}"
 
 
 def upload_doc(file, api_key: str) -> str:
@@ -142,6 +148,25 @@ def crawl_urls(url_text: str, api_key: str) -> str:
             if d.get("failed"):    parts.append(f"❌ {len(d['failed'])} 个失败")
             return "  |  ".join(parts) or "无变化"
         return f"❌ 请求失败 HTTP {r.status_code}"
+    except Exception as e:
+        return f"❌ 连接失败：{e}"
+
+
+def get_crawl_history(api_key: str) -> str:
+    try:
+        r = requests.get(f"{API_BASE}/crawl/history", headers=_headers(api_key), timeout=10)
+        if r.status_code == 200:
+            d = r.json()
+            urls = d.get("urls", [])
+            total = d.get("total", 0)
+            if not urls:
+                return "📭 暂无已抓取 URL"
+            lines = [f"📋 共 {total} 条已入库："]
+            lines += [f"- {u}" for u in urls[:50]]
+            if total > 50:
+                lines.append(f"*（仅显示前 50 条）*")
+            return "\n".join(lines)
+        return f"❌ HTTP {r.status_code}"
     except Exception as e:
         return f"❌ 连接失败：{e}"
 
@@ -194,7 +219,7 @@ def chat_respond(message: str, history: list, api_key: str, session_id: str):
             for i, w in enumerate(words):
                 streamed += w + (" " if i < len(words) - 1 else "")
                 history[-1][1] = streamed
-                if i % 4 == 0:          # 每 4 个词刷新一次
+                if i % 4 == 0:
                     yield history, ""
             history[-1][1] = answer
             yield history, ""
@@ -219,6 +244,27 @@ def clear_chat(session_id: str, api_key: str):
     return [], new_sid, f"<sub style='color:#94a3b8'>会话 ID：`{new_sid[:8]}…`</sub>"
 
 
+def send_feedback(feedback_type: str, history: list, api_key: str) -> str:
+    """将最近一条对话的反馈发送到 /feedback 接口"""
+    if not history:
+        return "⚠️ 没有可反馈的对话"
+    if not api_key:
+        return "⚠️ 请先填写 API Key"
+    last_q, last_a = history[-1]
+    try:
+        r = requests.post(
+            f"{API_BASE}/feedback",
+            json={"question": last_q, "answer": last_a, "feedback": feedback_type},
+            headers=_headers(api_key),
+            timeout=10,
+        )
+        if r.status_code == 200:
+            return "👍 感谢反馈！" if feedback_type == "good" else "👎 已记录，我们会改进"
+        return f"❌ 提交失败 HTTP {r.status_code}"
+    except Exception as e:
+        return f"❌ 连接失败：{e}"
+
+
 # ──────────────────────────────────────────────────────────────
 # 报表生成
 # ──────────────────────────────────────────────────────────────
@@ -228,9 +274,9 @@ def toggle_custom_field(choice: str):
 
 
 def generate_report(topic: str, rtype_label: str, custom: str, max_src: int, api_key: str):
-    """返回 (markdown_text, download_path_or_None)"""
+    """返回 (markdown_text, md_download_path, docx_download_path)"""
     if not topic.strip():
-        return "⚠️ 请先输入报告主题", None
+        return "⚠️ 请先输入报告主题", None, None
 
     rtype = REPORT_TYPES.get(rtype_label, "summary")
     try:
@@ -247,18 +293,31 @@ def generate_report(topic: str, rtype_label: str, custom: str, max_src: int, api
             d    = r.json()
             text = d.get("report", "")
 
-            # 保存 .md 供下载
             out_dir = Path("test")
             out_dir.mkdir(exist_ok=True)
             safe = topic[:20].replace(" ", "_").replace("/", "_")
-            out_path = out_dir / f"report_{safe}.md"
-            out_path.write_text(text, encoding="utf-8")
 
-            return text, str(out_path)
+            # Markdown 文件
+            md_path = out_dir / f"report_{safe}.md"
+            md_path.write_text(text, encoding="utf-8")
+
+            # Word 文件
+            docx_path_str = None
+            try:
+                from src.docx_exporter import markdown_to_docx_bytes
+                docx_bytes = markdown_to_docx_bytes(text, title=topic)
+                docx_path = out_dir / f"report_{safe}.docx"
+                docx_path.write_bytes(docx_bytes)
+                docx_path_str = str(docx_path)
+            except Exception as e:
+                pass  # DOCX 导出失败不影响 MD 下载
+
+            return text, str(md_path), docx_path_str
+
         detail = r.json().get("detail", r.text)
-        return f"❌ 生成失败：{detail[:150]}", None
+        return f"❌ 生成失败：{detail[:150]}", None, None
     except Exception as e:
-        return f"❌ 连接失败：{e}", None
+        return f"❌ 连接失败：{e}", None, None
 
 
 # ──────────────────────────────────────────────────────────────
@@ -274,7 +333,6 @@ def load_eval_report():
             "```bash\n"
             "python evaluate.py --key YOUR_KEY --no-llm-judge   # 快速模式\n"
             "python evaluate.py --key YOUR_KEY                  # 完整评估\n"
-            "python evaluate.py --key YOUR_KEY --ablation       # 消融实验\n"
             "```",
             None,
         )
@@ -356,40 +414,6 @@ def load_eval_report():
         return f"❌ 读取报告出错：{e}", None
 
 
-def load_ablation_report():
-    """读取消融实验报告"""
-    abl_path = REPORT_PATH.with_name("ablation_report.json")
-    if not abl_path.exists():
-        return "暂无消融实验报告，运行 `python evaluate.py --ablation --key YOUR_KEY` 生成。"
-    try:
-        data    = json.loads(abl_path.read_text(encoding="utf-8"))
-        results = data.get("results", [])
-        if not results:
-            return "报告文件为空。"
-
-        baseline_acc = results[0]["summary"].get("accuracy", 0)
-        baseline_sem = results[0]["summary"].get("avg_semantic", 0)
-
-        md = f"### 🔬 消融实验对比 <sub>（基准：{results[0]['name']}）</sub>\n\n"
-        md += "| 配置 | 准确率 | Δ准确率 | 语义相似 | Δ语义 | 均耗时 | P90 |\n"
-        md += "|------|--------|---------|----------|-------|--------|-----|\n"
-
-        for i, item in enumerate(results):
-            s    = item["summary"]
-            acc  = s.get("accuracy", 0)
-            sem  = s.get("avg_semantic", 0)
-            lat  = s.get("avg_latency_ms", 0)
-            p90  = s.get("p90_latency_ms", 0)
-            name = ("★ " if i == 0 else "　") + item["name"]
-            d_acc = "—" if i == 0 else f"{(acc - baseline_acc)*100:+.1f}%"
-            d_sem = "—" if i == 0 else f"{sem - baseline_sem:+.4f}"
-            md += f"| {name} | {acc*100:.1f}% | {d_acc} | {sem:.4f} | {d_sem} | {lat:.0f}ms | {p90:.0f}ms |\n"
-
-        return md
-    except Exception as e:
-        return f"❌ 读取消融报告出错：{e}"
-
-
 # ──────────────────────────────────────────────────────────────
 # UI 构建
 # ──────────────────────────────────────────────────────────────
@@ -429,7 +453,9 @@ with gr.Blocks(theme=theme, title="AI 数字员工", css=CSS) as demo:
             container=True,
         )
         health_btn = gr.Button("🔄 服务状态", variant="secondary", scale=1, min_width=110)
-        health_md  = gr.Markdown(value="", scale=6)
+        # gr.Markdown 不支持 scale 参数，包一层 Column 占位
+        with gr.Column(scale=6):
+            health_md = gr.Markdown(value="")
 
     health_btn.click(get_health, inputs=api_key_box, outputs=health_md)
     demo.load(get_health, inputs=api_key_box, outputs=health_md)
@@ -458,6 +484,8 @@ with gr.Blocks(theme=theme, title="AI 数字员工", css=CSS) as demo:
                         )
                         crawl_btn     = gr.Button("开始抓取 ▶", variant="secondary", size="sm")
                         crawl_status  = gr.Markdown(label="")
+                        history_btn   = gr.Button("📋 查看已抓取 URL", size="sm", variant="secondary")
+                        history_md    = gr.Markdown(label="")
 
                     with gr.Accordion("ℹ️ 使用说明", open=False):
                         gr.Markdown("""
@@ -491,12 +519,17 @@ with gr.Blocks(theme=theme, title="AI 数字员工", css=CSS) as demo:
                         )
                         send_btn = gr.Button("发送 ▶", variant="primary", scale=1, min_width=90)
                     with gr.Row():
-                        clear_chat_btn = gr.Button("🗑️ 清空对话", size="sm", variant="secondary")
-                        session_lbl    = gr.Markdown("", scale=4)
+                        clear_chat_btn  = gr.Button("🗑️ 清空对话", size="sm", variant="secondary")
+                        thumb_up_btn    = gr.Button("👍 有帮助", size="sm", variant="secondary")
+                        thumb_down_btn  = gr.Button("👎 有问题", size="sm", variant="secondary")
+                        with gr.Column(scale=3):
+                            session_lbl = gr.Markdown("")
+                    feedback_status = gr.Markdown("", visible=True)
 
             # 事件绑定
             upload_btn.click(upload_doc, [file_input, api_key_box], upload_status)
             crawl_btn.click(crawl_urls, [url_box, api_key_box], crawl_status)
+            history_btn.click(get_crawl_history, inputs=api_key_box, outputs=history_md)
 
             send_btn.click(
                 chat_respond,
@@ -512,6 +545,16 @@ with gr.Blocks(theme=theme, title="AI 数字员工", css=CSS) as demo:
                 clear_chat,
                 inputs=[session_id, api_key_box],
                 outputs=[chatbot, session_id, session_lbl],
+            )
+            thumb_up_btn.click(
+                lambda h, k: send_feedback("good", h, k),
+                inputs=[chatbot, api_key_box],
+                outputs=feedback_status,
+            )
+            thumb_down_btn.click(
+                lambda h, k: send_feedback("bad", h, k),
+                inputs=[chatbot, api_key_box],
+                outputs=feedback_status,
             )
 
         # ════════════════════════════════════════════
@@ -566,19 +609,22 @@ with gr.Blocks(theme=theme, title="AI 数字员工", css=CSS) as demo:
                         label="",
                         height=520,
                     )
-                    report_dl = gr.File(label="⬇️ 下载 Markdown 报告", visible=False)
+                    with gr.Row():
+                        report_md_dl   = gr.File(label="⬇️ Markdown", visible=False)
+                        report_docx_dl = gr.File(label="⬇️ Word (.docx)", visible=False)
 
             rtype_box.change(toggle_custom_field, rtype_box, custom_box)
 
             def _gen_report_and_update_dl(topic, rtype, custom, max_src, api_key):
-                text, path = generate_report(topic, rtype, custom, max_src, api_key)
-                dl_update = gr.update(value=path, visible=bool(path))
-                return text, dl_update
+                text, md_path, docx_path = generate_report(topic, rtype, custom, max_src, api_key)
+                md_update   = gr.update(value=md_path,   visible=bool(md_path))
+                docx_update = gr.update(value=docx_path, visible=bool(docx_path))
+                return text, md_update, docx_update
 
             gen_btn.click(
                 _gen_report_and_update_dl,
                 inputs=[topic_box, rtype_box, custom_box, max_src_slider, api_key_box],
-                outputs=[report_output, report_dl],
+                outputs=[report_output, report_md_dl, report_docx_dl],
             )
 
         # ════════════════════════════════════════════
@@ -587,34 +633,18 @@ with gr.Blocks(theme=theme, title="AI 数字员工", css=CSS) as demo:
         with gr.Tab("🔬 系统评估"):
             with gr.Row():
                 refresh_btn = gr.Button("🔄 刷新报告", variant="secondary")
-                gr.Markdown(
-                    "运行 `python evaluate.py --key YOUR_KEY` 生成报告后点击刷新",
-                    scale=4,
-                )
+                with gr.Column(scale=4):
+                    gr.Markdown("运行 `python evaluate.py --key YOUR_KEY` 生成报告后点击刷新")
                 eval_dl = gr.File(label="⬇️ 下载 JSON", visible=False, scale=1)
 
-            # 主评估报告
             eval_md = gr.Markdown()
 
-            gr.Markdown("---")
-
-            # 消融实验报告（折叠）
-            with gr.Accordion("🔬 消融实验对比", open=False):
-                gr.Markdown(
-                    "运行 `python evaluate.py --ablation --key YOUR_KEY` 生成消融报告"
-                )
-                ablation_refresh_btn = gr.Button("🔄 刷新消融报告", size="sm")
-                ablation_md = gr.Markdown()
-
-            # 事件
             def _refresh_eval():
                 md, dl = load_eval_report()
                 return md, gr.update(value=dl, visible=bool(dl))
 
             refresh_btn.click(_refresh_eval, outputs=[eval_md, eval_dl])
             demo.load(_refresh_eval, outputs=[eval_md, eval_dl])
-            ablation_refresh_btn.click(load_ablation_report, outputs=ablation_md)
-            demo.load(load_ablation_report, outputs=ablation_md)
 
 
 # ──────────────────────────────────────────────────────────────

@@ -29,7 +29,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     前端 (Streamlit)                         │
+│                     前端 (Gradio)                            │
 │   💬 智能对话      📊 报表生成      🔬 系统评估              │
 └────────────────────────┬────────────────────────────────────┘
                          │ HTTP
@@ -140,10 +140,10 @@ docker exec rag_ollama ollama pull qwen2:7b
 uvicorn src.api:app --reload --port 8000
 
 # 终端 2：前端 UI
-streamlit run app.py
+python app_gradio.py
 ```
 
-访问 http://localhost:8501 打开前端界面。
+访问 http://localhost:7860 打开前端界面。
 
 ---
 
@@ -227,7 +227,7 @@ python evaluate.py --key your-key --file test/my_cases.json --threshold 0.8
 | `faithfulness` | 忠实度，量化幻觉程度（0~1） |
 | `p50/p90/p99` | 端到端耗时百分位（ms） |
 
-报告保存至 `test/evaluation_report.json`，可在 Streamlit 评估看板中可视化查看。
+报告保存至 `test/evaluation_report.json`，可在前端「系统评估」页可视化查看。
 
 ---
 
@@ -274,7 +274,7 @@ pytest tests/test_docx_exporter.py -v
 │   ├── document_loader.py  # PDF / Word 文档解析
 │   ├── docx_exporter.py    # Markdown → Word 导出
 │   ├── evaluator.py        # AutoEvaluator 自动化评估引擎
-│   ├── intent_classifier.py# 意图分类（RAG / 闲聊 / 翻译）
+│   ├── intent_classifier.py# 意图分类（知识查询 / 操作 / 投诉 / 闲聊）
 │   ├── llm_factory.py      # LLM 工厂：Fallback + 指数退避重试
 │   ├── web_scraper.py      # 网页正文抓取
 │   ├── translator.py       # 多语言翻译
@@ -285,7 +285,7 @@ pytest tests/test_docx_exporter.py -v
 ├── tests/
 │   ├── test_evaluator.py   # AutoEvaluator 单元测试（全 Mock）
 │   └── test_docx_exporter.py # Word 导出测试
-├── app.py                  # Streamlit 前端（3 页面）
+├── app_gradio.py           # Gradio 前端（对话 / 知识库 / 报表 / 评估）
 ├── evaluate.py             # 全自动评估脚本（CLI）
 ├── docker-compose.yml      # Qdrant + Ollama 一键启动
 ├── requirements.txt
@@ -299,7 +299,7 @@ pytest tests/test_docx_exporter.py -v
 | 类别 | 技术 |
 |------|------|
 | 后端 API | FastAPI + Uvicorn |
-| 前端 UI | Streamlit |
+| 前端 UI | Gradio |
 | 流程编排 | LangGraph StateGraph |
 | RAG 框架 | LangChain |
 | 大模型 | DeepSeek API / Ollama（本地） |
