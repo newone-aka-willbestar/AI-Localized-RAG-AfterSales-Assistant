@@ -8,7 +8,6 @@
 解析后统一转为 LangChain Document 列表，交给下游分片器处理。
 """
 import logging
-import os
 from pathlib import Path
 from typing import List
 
@@ -82,8 +81,10 @@ class DocumentLoader:
         except Exception as e:
             logger.warning(f"高级 PDF 解析失败，启用基础文本提取: {e}")
             doc = fitz.open(str(file_path))
-            text = "\n\n".join([page.get_text() for page in doc])
-            doc.close()
+            try:
+                text = "\n\n".join([page.get_text() for page in doc])
+            finally:
+                doc.close()
             return text
 
     # ── Word 解析 ─────────────────────────────────────────
@@ -104,7 +105,6 @@ class DocumentLoader:
         """
         try:
             from docx import Document as DocxDocument
-            from docx.oxml.ns import qn
         except ImportError:
             raise ImportError(
                 "python-docx 未安装，请运行: pip install python-docx>=1.1.0"

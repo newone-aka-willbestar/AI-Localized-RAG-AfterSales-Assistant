@@ -142,7 +142,7 @@ def print_summary(summary: dict) -> None:
         print("\n  分类语义得分：")
         for cat, score in summary["category_scores"].items():
             bar = "█" * int(score * 20) + "░" * (20 - int(score * 20))
-        print(f"    {cat:<15} {bar} {score:.4f}")
+            print(f"    {cat:<15} {bar} {score:.4f}")
     print("=" * 60)
 
 

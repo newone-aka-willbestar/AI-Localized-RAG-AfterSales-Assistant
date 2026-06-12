@@ -84,6 +84,9 @@ class RAG:
                 with open(self.cache_path, "rb") as f:
                     cached_docs = pickle.load(f)
                 logger.info(f"发现本地缓存 ({len(cached_docs)} 个文本块)，正在恢复检索引擎...")
+                # 必须同步恢复 all_documents：否则重启后再上传新文档时，
+                # add_documents 会只用新文档重建 BM25，旧文档全部丢失
+                self.all_documents = list(cached_docs)
                 self.init_retriever(cached_docs, save_cache=False)
             except Exception as e:
                 logger.error(f"缓存恢复失败: {e}")
@@ -161,7 +164,7 @@ class RAG:
             answer = chain.invoke({"input": question})
         except Exception as e:
             logger.warning(f"闲聊回复失败: {e}")
-            answer = "您好！有什么设备相关的问题需要我帮助吗？"
+            answer = "您好！有什么知识库相关的问题需要我帮助吗？您也可以先上传文档或采集网页内容。"
         return {"answer": answer, "sources": [], "provider": settings.LLM_PROVIDER}
 
     def ask(self, question: str, history: str = "") -> Dict[str, Any]:
@@ -249,7 +252,8 @@ class RAG:
             sanitized_sources = []
             for doc in retrieved_docs:
                 meta = sanitize_metadata(doc.metadata)
-                meta["content_excerpt"] = doc.page_content[:100] + "..."
+                content = doc.page_content
+                meta["content_excerpt"] = content[:100] + ("..." if len(content) > 100 else "")
                 sanitized_sources.append(meta)
 
             return {
@@ -259,9 +263,5 @@ class RAG:
             }
 
         except Exception as e:
-            logger.error(f"问答链路异常: {e}")
-            return {
-                "answer": "服务繁忙，请稍后再试。",
-                "sources": [],
-                "provider": settings.LLM_PROVIDER
-            }
+            logger.error(f"问答链路异常: {e}", exc_info=True)
+            raise

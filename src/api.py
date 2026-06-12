@@ -87,16 +87,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AI 数字员工", lifespan=lifespan)
 
 # CORS：明确列出允许的来源，不用 * 全开
-# 本地开发时前端跑在 8501，生产环境替换为真实域名
+# 本地开发时 Gradio 前端跑在 7860，生产环境替换为真实域名
 _cors_origins = os.environ.get(
     "CORS_ORIGINS",
-    "http://localhost:8501,http://127.0.0.1:8501"
+    "http://localhost:7860,http://127.0.0.1:7860"
 ).split(",")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -194,7 +194,8 @@ async def upload(file: UploadFile = File(...), api_key: str = Depends(verify_api
             detail=f"不支持的格式 '{suffix}'，当前支持：{', '.join(SUPPORTED_EXTENSIONS)}"
         )
 
-    if file.size and file.size > settings.MAX_UPLOAD_SIZE:
+    content = await file.read()
+    if len(content) > settings.MAX_UPLOAD_SIZE:
         raise HTTPException(
             status_code=413,
             detail=f"文件过大，最大支持 {settings.MAX_UPLOAD_SIZE // 1024 // 1024}MB"
@@ -203,10 +204,10 @@ async def upload(file: UploadFile = File(...), api_key: str = Depends(verify_api
     fd, tmp_path = tempfile.mkstemp(suffix=suffix)
     try:
         with os.fdopen(fd, "wb") as tmp:
-            tmp.write(await file.read())
+            tmp.write(content)
 
         # 文档解析是 CPU 密集型同步操作，放线程池执行
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         loader = DocumentLoader()
         docs = await loop.run_in_executor(
             _executor,
@@ -261,16 +262,16 @@ async def crawl(request: CrawlRequest, api_key: str = Depends(verify_api_key)):
     }
     """
     urls = request.urls
+    if not urls:
+        raise HTTPException(status_code=400, detail="urls 不能为空")
     if len(urls) > settings.SCRAPER_MAX_URLS_PER_REQUEST:
         raise HTTPException(
             status_code=400,
             detail=f"单次最多 {settings.SCRAPER_MAX_URLS_PER_REQUEST} 个 URL，"
                    f"当前传入 {len(urls)} 个"
         )
-    if not urls:
-        raise HTTPException(status_code=400, detail="urls 不能为空")
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     scraper = WebScraper()
     vector_store = VectorStore()
 
@@ -369,7 +370,7 @@ async def ask(request: QuestionRequest, api_key: str = Depends(verify_api_key)):
     - 其他意图  → 完整 RAG 流程 + 历史上下文注入
     - session_id 可选，传入时开启多轮记忆，不传则单轮无状态（向后兼容）
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     # 构建初始状态，交给图执行
     initial_state = make_initial_state(
@@ -379,6 +380,7 @@ async def ask(request: QuestionRequest, api_key: str = Depends(verify_api_key)):
 
     # 计时 + 执行图（同步，放线程池避免阻塞事件循环）
     error_msg: Optional[str] = None
+    final_state = None
     with audit_log.Timer() as timer:
         try:
             final_state = await loop.run_in_executor(
@@ -388,20 +390,22 @@ async def ask(request: QuestionRequest, api_key: str = Depends(verify_api_key)):
         except Exception as e:
             error_msg = str(e)
             logger.error(f"/ask 执行异常: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail="服务繁忙，请稍后再试")
 
-    # 审计日志：fire-and-forget，失败不影响响应
+    # 审计日志：不管成功失败都记录，fire-and-forget
     audit_log.record(
         question=request.question,
-        intent=final_state["intent"],
+        intent=final_state["intent"] if final_state else "error",
         latency_ms=timer.elapsed_ms,
-        answer_length=len(final_state["answer"]),
-        source_count=len(final_state["sources"]),
+        answer_length=len(final_state["answer"]) if final_state else 0,
+        source_count=len(final_state["sources"]) if final_state else 0,
         session_id=request.session_id,
         error=error_msg,
-        provider=final_state["provider"],
-        has_history=bool(final_state.get("history")),
+        provider=final_state["provider"] if final_state else settings.LLM_PROVIDER,
+        has_history=bool(final_state.get("history")) if final_state else False,
     )
+
+    if error_msg:
+        raise HTTPException(status_code=500, detail="服务繁忙，请稍后再试")
 
     return {
         "answer":   final_state["answer"],
@@ -453,7 +457,7 @@ async def generate_report(request: ReportRequest, api_key: str = Depends(verify_
     if request.max_sources < 1 or request.max_sources > 20:
         raise HTTPException(status_code=400, detail="max_sources 范围：1-20")
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     with audit_log.Timer() as timer:
         result = await loop.run_in_executor(
