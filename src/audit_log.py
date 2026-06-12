@@ -66,7 +66,7 @@ def _get_audit_logger() -> logging.Logger:
     file_handler.setFormatter(logging.Formatter("%(message)s"))
     audit_logger.addHandler(file_handler)
 
-    # 控制台 handler（给 Docker logs / Streamlit 日志面板看）
+    # 控制台 handler（给 Docker logs / 终端查看）
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(logging.Formatter("[AUDIT] %(message)s"))
     audit_logger.addHandler(stream_handler)

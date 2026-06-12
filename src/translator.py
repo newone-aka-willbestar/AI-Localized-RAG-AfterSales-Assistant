@@ -14,9 +14,9 @@
 4. 开关：TRANSLATION_ENABLED=false 时完全跳过，不增加延迟
 
 使用场景：
-- 进口设备的英文原版手册
-- 日文、德文技术文档
-- 国际化产品的多语言说明书
+- 英文学术论文与技术文档
+- 日文、德文等其他语种文献
+- 多语言网页内容入库前的统一处理
 """
 import logging
 from typing import Optional

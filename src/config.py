@@ -1,5 +1,4 @@
-﻿import os
-from pydantic_settings import BaseSettings, SettingsConfigDict
+﻿from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal
 
 
@@ -97,7 +96,7 @@ class Settings(BaseSettings):
     # 设置 LANGCHAIN_TRACING_V2=true 即可开启，不影响任何业务逻辑
     LANGCHAIN_TRACING_V2: bool = False
     LANGCHAIN_API_KEY: str = ""
-    LANGCHAIN_PROJECT: str = "industrial-rag"
+    LANGCHAIN_PROJECT: str = "ai-digital-employee"
     LANGCHAIN_ENDPOINT: str = "https://api.smith.langchain.com"
 
     # ==========================================

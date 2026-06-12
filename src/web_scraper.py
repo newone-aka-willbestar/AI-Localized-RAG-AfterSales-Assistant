@@ -8,7 +8,7 @@
 
 技术选型：
 - trafilatura：纯 Python，正文提取准确率高，不需要浏览器
-  适合大多数工业设备厂商的静态/服务端渲染页面
+  适合大多数静态/服务端渲染页面（百科、博客、文档站）
 - 不引入 crawl4ai（需要 Playwright，启动开销大），
   如果遇到 JS 渲染页面，用户可在 .env 中配置 SCRAPER_USE_BROWSER=true 扩展
 

@@ -3,7 +3,7 @@ Word 导出模块。
 
 职责：
 将 Markdown 格式的报告文本转为 .docx 文件的字节流，
-供前端 Streamlit 的 st.download_button 直接使用。
+供前端（Gradio gr.File / API 二进制响应）直接下载使用。
 
 转换规则：
   # 标题    → Heading 1
@@ -39,7 +39,6 @@ def markdown_to_docx_bytes(markdown_text: str, title: str = "") -> bytes:
     """
     try:
         from docx import Document
-        from docx.shared import Pt, RGBColor
         from docx.enum.text import WD_ALIGN_PARAGRAPH
     except ImportError:
         raise ImportError("python-docx 未安装，请运行: pip install python-docx>=1.1.0")
@@ -110,8 +109,6 @@ def _add_table(doc, table_lines: List[str]) -> None:
     将 Markdown 表格行列表写入 Word 表格。
     自动跳过分隔行（| --- | --- |）。
     """
-    from docx.shared import Pt
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
 
     # 解析行：过滤分隔行
     data_rows = []
