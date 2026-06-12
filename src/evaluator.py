@@ -35,8 +35,6 @@ p50/p90/p99_ms    耗时百分位
 category_scores   各类别的平均语义得分
 """
 import logging
-import time
-from typing import Optional
 import numpy as np
 
 logger = logging.getLogger(__name__)

@@ -18,7 +18,7 @@
 import logging
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -155,10 +155,8 @@ class IntentClassifier:
         logger.debug("无 Embedding 模型，默认分类为 knowledge_query")
         return IntentResult(intent="knowledge_query", confidence=0.5, method="default")
 
-    def _rule_classify(self, text: str) -> IntentResult | None:
+    def _rule_classify(self, text: str) -> Optional[IntentResult]:
         """关键词规则层，命中返回结果，未命中返回 None"""
-        lower = text.lower()
-
         # 投诉词优先（避免被其他规则误判）
         for kw in _COMPLAINT_KEYWORDS:
             if kw in text:

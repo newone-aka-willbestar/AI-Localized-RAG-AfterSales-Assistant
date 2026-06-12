@@ -14,8 +14,6 @@
 输出格式：Markdown 字符串，前端直接渲染并提供下载。
 """
 import logging
-from typing import Optional
-from src.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +223,8 @@ class ReportGenerator:
             sources = []
             for doc in docs_to_use:
                 meta = sanitize_metadata(doc.metadata)
-                meta["content_excerpt"] = doc.page_content[:120] + "..."
+                content = doc.page_content
+                meta["content_excerpt"] = content[:120] + ("..." if len(content) > 120 else "")
                 sources.append(meta)
 
             logger.info(
