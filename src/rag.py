@@ -253,7 +253,10 @@ class RAG:
             for doc in retrieved_docs:
                 meta = sanitize_metadata(doc.metadata)
                 content = doc.page_content
-                meta["content_excerpt"] = content[:100] + ("..." if len(content) > 100 else "")
+                # 摘要保留前 300 字：既供前端来源面板展示，也是评估忠实度时
+                # LLM 裁判判断"答案声明是否有据可查"的上下文。截得过短（如 100 字）
+                # 会让忠实度被系统性低估。
+                meta["content_excerpt"] = content[:300] + ("..." if len(content) > 300 else "")
                 sanitized_sources.append(meta)
 
             return {

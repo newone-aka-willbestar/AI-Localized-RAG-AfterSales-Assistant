@@ -224,7 +224,7 @@ class ReportGenerator:
             for doc in docs_to_use:
                 meta = sanitize_metadata(doc.metadata)
                 content = doc.page_content
-                meta["content_excerpt"] = content[:120] + ("..." if len(content) > 120 else "")
+                meta["content_excerpt"] = content[:300] + ("..." if len(content) > 300 else "")
                 sources.append(meta)
 
             logger.info(
